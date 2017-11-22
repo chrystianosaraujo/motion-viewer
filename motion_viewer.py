@@ -68,7 +68,6 @@ class MotionViewer:
 
     def _draw_scene(self):
         time_passed = self.clock.tick()
-        time_passed_seconds = time_passed / 1000.
 
         glClear(GL_COLOR_BUFFER_BIT | GL_DEPTH_BUFFER_BIT);
 
