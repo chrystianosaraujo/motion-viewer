@@ -2,6 +2,7 @@ from OpenGL.GL import *
 from OpenGL.GLU import *
 
 import pygame
+import sys
 
 class MotionViewer:
     WINDOW_TITLE = "CPSC 526 - Final Project: Chrystiano Araujo & Edoardo Dominici"
@@ -10,15 +11,17 @@ class MotionViewer:
         self._screen_size = screen_size
         self._events_cb = {}
 
+        self._register_events()
         self._setup_window()
 
     def run(self):
-        while not self.quit:
+        while True:
             self._handle_events()
             self._draw_scene()
 
-    def shutdown(self):
-        self.quit = True
+    def shutdown(self, **_):
+        # TODO: Any state must be saved here
+        sys.exit()
 
     def _setup_window(self):
       pygame.init()
@@ -34,37 +37,34 @@ class MotionViewer:
       # TODO: Is there any other way to do this?
       self.quit = False
 
-    def _handle_events(self):
-        # TODO: Map types to callbacks
-        for e in pygame.event.get():
-            if e.type == pygame.QUIT:
-                self.shutdown()
-            
-            elif e.type == pygame.VIDEORESIZE:
-                print(e, type(e))
-                self._resize(e.size)
-            
-            elif e.type == pygame.MOUSEBUTTONDOWN:
-                self._handle_mouse_down(e.pos, e.button)
-            
-            elif e.type == pygame.MOUSEBUTTONUP:
-                self._handle_mouse_down(e.pos, e.button)
-            
-            elif e.type == pygame.MOUSEMOTION:
-                self._handle_mouse_motion(e.pos, e.rel, e.buttons)
+    def _register_events(self):
+        self._events_cb[pygame.QUIT]            = self.shutdown
+        self._events_cb[pygame.VIDEORESIZE]     = self._resize
+        self._events_cb[pygame.MOUSEBUTTONDOWN] = self._handle_mouse_down
+        self._events_cb[pygame.MOUSEBUTTONUP]   = self._handle_mouse_up
+        self._events_cb[pygame.MOUSEMOTION]     = self._handle_mouse_motion
+        self._events_cb[pygame.KEYDOWN]         = self._handle_key_press
 
-    def _resize(self, size):
-        print("RESIZE Event: {0}".format(str(size)))
+    def _handle_events(self):
+        for e in pygame.event.get():
+            if e.type in self._events_cb:
+                self._events_cb[e.type](**e.dict)
+
+    def _resize(self, size, **_):
         glViewport(0, 0, size[0], size[1])
 
-    def _handle_mouse_down(self, pos, button):
-        print("MouseDown Event: {0} - {1}".format(str(pos), str(button)))
+    def _handle_mouse_down(self, pos, button, **_):
+        pass
 
-    def _handle_mouse_up(self, pos, button):
-        print("MouseUp Event: {0} - {1}".format(str(pos), str(button)))
+    def _handle_mouse_up(self, pos, button, **_):
+        pass
 
-    def _handle_mouse_motion(self, pos, rel, buttons):
-        print("MouseUp Event: {0} - {1} - {2}".format(str(pos), str(rel), str(buttons)))
+    def _handle_mouse_motion(self, pos, rel, buttons, **_):
+        pass
+
+    def _handle_key_press(self, key, mod, **_):
+        if key == pygame.K_ESCAPE:
+            self.shutdown()
 
     def _draw_scene(self):
         time_passed = self.clock.tick()
