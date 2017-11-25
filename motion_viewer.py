@@ -4,6 +4,8 @@ from OpenGL.GLU import *
 import pygame
 import sys
 
+from motion_render import MotionRender
+
 class MotionViewer:
     WINDOW_TITLE = "CPSC 526 - Final Project: Chrystiano Araujo & Edoardo Dominici"
 
@@ -13,6 +15,7 @@ class MotionViewer:
 
         self._register_events()
         self._setup_window()
+        self._setup_renderers()
 
     def run(self):
         while True:
@@ -34,8 +37,8 @@ class MotionViewer:
       # Used to control the framerate
       self.clock = pygame.time.Clock()
 
-      # TODO: Is there any other way to do this?
-      self.quit = False
+    def _setup_renderers(self):
+        self._motion_render = MotionRender()
 
     def _register_events(self):
         self._events_cb[pygame.QUIT]            = self.shutdown
@@ -70,6 +73,8 @@ class MotionViewer:
         time_passed = self.clock.tick()
 
         glClear(GL_COLOR_BUFFER_BIT | GL_DEPTH_BUFFER_BIT);
+        self._motion_render.draw()
+        #floor_render.draw()
 
         pygame.display.flip()
 
