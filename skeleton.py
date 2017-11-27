@@ -1,6 +1,7 @@
 # Python
 import enum
 import os
+import math
 
 # Motion Viewer
 import bvh
@@ -47,7 +48,7 @@ class NodeType(enum.Enum):
 	LEFT_FINGER_RING1 = 31
 	LEFT_FINGER_RING2 = 32
 	LEFT_FINGER_PINKY1 = 33
-	LEFT_FINGER_PINKY2 = 34
+	LEFT_FINGER_PINKY2 = 34	
 
 class UnsupportedError(Exception):
 	pass
@@ -62,6 +63,8 @@ class AnimatedSkeleton:
 		self._frame_time = 0
 		self._frames = []
 
+		self._traverse_func = None
+
 	# Loads the skeleton from file
 	# Currently only BVH (Biovision Hierarchy) is supported
 	# OSError is raised if <path> couldn't be opened
@@ -73,6 +76,7 @@ class AnimatedSkeleton:
 		if ext == '.bvh':
 			try:
 				self._root, self._frame_time, self._frames = bvh.import_bvh(path)
+				self._traverse_func = self._traverse_bvh
 			except bvh.BVHFormatError as err:
 				raise FormatError(str(err))
 		else:
@@ -88,10 +92,82 @@ class AnimatedSkeleton:
 	def frame_time(self):
 		return self._frame_time
 
+	def _traverse_bvh(self, frame, callback, node, parent_transform):
+		rotx = self._frames[frame][node.rotx_idx] if node.rotx_idx else None
+		roty = self._frames[frame][node.roty_idx] if node.roty_idx else None
+		rotz = self._frames[frame][node.rotz_idx] if node.rotz_idx else None
+
+		offx = self._frames[frame][node.offx_idx] if node.offx_idx else 0
+		offy = self._frames[frame][node.offy_idx] if node.offy_idx else 0
+		offz = self._frames[frame][node.offz_idx] if node.offz_idx else 0
+
+		Rx = np.identity(4)
+		Ry = np.identity(4)
+		Rz = np.identity(4)
+
+		if rotx:
+			c = math.cos(math.radians(rotx))
+			s = math.cos(math.radians(rotx))
+			Rx = np.array([[1.0, 0.0, 0.0, 0.0],
+						   [0.0, +c,  -s, 0.0],
+						   [0.0, +s,  +c, 0.0],
+						   [0.0, 0.0, 0.0, 1.0]])
+
+		if roty:
+			c = math.cos(math.radians(roty))
+			s = math.cos(math.radians(roty))
+			Ry = np.array([[ +c, 0.0, +s, 0.0],
+						   [0.0, 1.0, 0.0, 0.0],
+						   [ -s, 0.0, +c, 0.0],
+						   [0.0, 0.0, 0.0, 1.0]])
+
+		if rotz:
+			c = math.cos(math.radians(rotz))
+			s = math.cos(math.radians(rotz))
+			Rz = np.array([[ +c,  -s, 0.0, 0.0],
+						   [ +s,  +c, 0.0, 0.0],
+					 	   [0.0, 0.0, 1.0, 0.0],
+					 	   [0.0, 0.0, 0.0, 1.0]])
+
+		# Right to left multiplication 
+		# R = Rz * Rx * Ry 
+		R = np.dot(Rx, Ry)
+		R = np.dot(Rz, R)
+
+		# M = TS
+		M = np.copy(R)
+		M[0, 3] = offx
+		M[1, 3] = offy
+		M[2, 3] = offz
+
+		transform = np.dot(M, parent_transform)
+
+		if callback:
+			callback(NodeType.HIP, node.name, transform)
+
+		for child in node.children:
+			self._traverse_bvh(frame, callback, child, transform)
+
+
 	# Traverses the internal hierarchy top-down calculating the combined 
 	# transforms for the specified <frame>.
 	# <callback> is called for each encountered node  
-	# callback(node_type : NodeType, node_name : str, current_transform : np.array, parent_transform : np.array)
+	# callback(node_type : NodeType, node_name : str, transform)
 	# Transforms are affine 4x4
 	def traverse(self, frame, callback):
-		pass
+		if not callback:
+			return
+
+		if frame not in range(0, self.frame_count):
+			# error()
+			return
+
+		if not self._root:
+			# error()
+			return
+
+		transform = np.identity(4)
+		self._traverse_func(frame, callback, self._root[0], transform)
+
+def on_node(node_type, node_name, transform):
+	print(node_name)

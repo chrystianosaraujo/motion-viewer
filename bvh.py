@@ -39,6 +39,7 @@ def import_bvh(path):
 
 		# TODO
 		# Add expected_next_line to ensure format correctness
+		# catch ValueError on type conversions
 		while True:
 			line = next(f).strip()
 			if line.startswith('ROOT'):
