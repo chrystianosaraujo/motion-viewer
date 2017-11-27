@@ -1,23 +1,36 @@
 import OpenGL.GL as GL
 from OpenGL.GL import shaders
+import debugger
 
 class ShaderProgram:
     def __init__(self, vert_source_fn, frag_source_fn):
         self._vert_source_fn = vert_source_fn
         self._frag_source_fn = frag_source_fn
 
+        self._attributes = {}
         self._program_id = None
 
-    def use(self):
+    def bind(self):
         """Activates a shader program.
 
         Raises a RuntimeError when called before linking/compiling the shader program.
         """
 
         if self._program_id is None:
-            raise RuntimeError("Error while trying to use a non-compiled shader program.")
+            raise RuntimeError("Error while trying to bind a non-compiled shader program.")
 
         GL.glUseProgram(self._program_id)
+
+    def unbind(self):
+        """Deactivates a shader program.
+
+        Raises a RuntimeError when called before linking/compiling the shader program.
+        """
+
+        if self._program_id is None:
+            raise RuntimeError("Error while trying unbind a non-compiled shader program.")
+
+        GL.glUseProgram(0)
 
     def compile(self):
         """
@@ -44,6 +57,11 @@ class ShaderProgram:
         # Attaching and linking shaders' source
         GL.glAttachShader(self._program_id, vert_source_id)
         GL.glAttachShader(self._program_id, frag_source_id)
+
+        # Bind Attributes
+        for location, name in self._attributes.items():
+            GL.glBindAttribLocation(self._program_id, location, name)
+
         GL.glLinkProgram(self._program_id)
 
         if GL.glGetProgramiv(self._program_id, GL.GL_LINK_STATUS) == GL.GL_FALSE:
@@ -58,7 +76,20 @@ class ShaderProgram:
         GL.glDeleteShader(vert_source_id)
         GL.glDeleteShader(frag_source_id)
 
-    def get_attrib_location(self, attrib_name):
+    def bind_attribute(self, location, attrib_name):
+        """Binds a vertex attribute. 
+        This function should only be used before compiling the shader program.
+
+        Raises a RuntimeError when called before compiling the shader program.
+        """
+
+        if self._program_id is not None:
+            raise RuntimeError("Error while trying to call bind_attribute "\
+                               "for an already compiled shader program.""")
+
+        self._attributes[location] = "attrib_name"
+
+    def attribute_location(self, attrib_name):
         """Returns the location related to the given vertex attribute name. This function should
         only be used after linking and compiling the shader program.
 
@@ -78,7 +109,7 @@ class ShaderProgram:
         Raises a RuntimeError when called before linking/compiling the shader program.
         """
 
-        if not self.linked:
+        if self._program_id is None:
             raise RuntimeError("Error while trying to call uniform_location "\
                                "for a non-compiled shader program.""")
 
