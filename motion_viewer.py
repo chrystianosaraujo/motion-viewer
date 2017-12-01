@@ -1,25 +1,32 @@
-from OpenGL.GL import *
-from pyglet.window import key as KEY
-from pyglet.window import mouse as MOUSE
+# External
+import OpenGL.GL as GL
 import pyglet
-import sys
 import glm
 
+# Python
+import sys
+
+# Internal
 from motion_render import MotionRender
+from skeleton import AnimatedSkeleton
+from camera import FirstPersonCamera
+
 
 class MotionViewer(pyglet.window.Window):
-    def __init__(self, window_size = (800, 600)):
-        self._window_size = window_size
+    WINDOW_TITLE = "CPSC 526 - Final Project: Chrystiano Araujo & Edoardo Dominici"
+
+    def __init__(self, screen_size=(1600, 900)):
+        self._screen_size = screen_size
 
         caption = "CPSC 526 - Final Project: Chrystiano Araujo & Edoardo Dominici"
         vsync_enabled = True
 
         init_data = {
-          "width"    : window_size[0],
-          "height"   : window_size[1],
-          "caption"  : caption,
-          "resizable": True,
-          "vsync"    : vsync_enabled,
+            "width": screen_size[0],
+            "height": screen_size[1],
+            "caption": caption,
+            "resizable": True,
+            "vsync": vsync_enabled,
         }
 
         super(MotionViewer, self).__init__(**init_data)
@@ -27,10 +34,23 @@ class MotionViewer(pyglet.window.Window):
         self._fps_display = pyglet.clock.ClockDisplay()
 
         self._events_cb = {}
-        self._background_color = [0.0, 0.0, 0.0, 0.0]
+        self._background_color = [0.12, 0.12, 0.12, 1.0]
+
+        self._camera = FirstPersonCamera(screen_size[0] / screen_size[1])
+
+        self._frame = 0
 
         self._setup_gl()
         self._setup_renderers()
+        self.set_exclusive_mouse(True)
+
+        pyglet.clock.schedule_interval(self.on_update, 1.0 / 120)
+
+    def run(self):
+        while True:
+            self._handle_events()
+            self._camera.update(0.0)
+            self._draw_scene()
 
     def shutdown(self, **_):
         self._motion_render.clean_up()
@@ -38,52 +58,41 @@ class MotionViewer(pyglet.window.Window):
         # TODO: Any state must be saved here
         sys.exit()
 
-    def on_draw(self):
-        self.clear()
+    def on_update(self, dt):
+        self._camera.update(dt)
 
+    def on_draw(self):
         # Update model, view, and project matrices in all renderers
         # TODO: replace this for a camera manipulator
-        self._motion_render.set_render_matrices(self._view_matrix, self._projection_matrix)
+        self._motion_render.set_render_matrices(self._camera.view, self._camera.projection)
 
-        glClear(GL_COLOR_BUFFER_BIT | GL_DEPTH_BUFFER_BIT);
-        self._motion_render.draw()
-        self._fps_display.draw()
+        GL.glClear(GL.GL_COLOR_BUFFER_BIT | GL.GL_DEPTH_BUFFER_BIT)
+        self._motion_render.draw(self._frame)
+        # floor_render.draw()
 
-    def _setup_renderers(self):
-        self._motion_render = MotionRender()
+        self._frame += 1
+
+    def on_mouse_motion(self, x, y, dx, dy):
+        self._camera.on_mouse_move(-dx, dy)
+
+    def on_key_press(self, symbol, mod):
+        self._camera.on_key_down(symbol)
+
+    def on_key_release(self, symbol, mod):
+        if symbol == pyglet.window.key.Q:
+            pyglet.app.exit()
+        self._camera.on_key_up(symbol)
 
     def _setup_gl(self):
-        glClearColor(*self._background_color)
+        GL.glClearColor(*self._background_color)
+        GL.glClearDepth(1.0)
 
-        aspect = self._window_size[0] / float(self._window_size[1])
-        self._projection_matrix = glm.perspective(45.0,
-                                                  aspect,
-                                                  0.00001,
-                                                  100.0)
+    def _setup_renderers(self):
+        skeleton = AnimatedSkeleton()
+        skeleton.load_from_file('bvh_cmu/02/02_01.bvh')
+        self._motion_render = MotionRender(skeleton)
 
-        self._view_matrix = glm.lookAt(glm.vec3(-1.5, -1.5, -1.0),
-                                       glm.vec3( 0.0,  0.0,  0.0),
-                                       glm.vec3( 0.0,  1.0,  0.0))
 
-    def on_resize(self, width, height):
-        glViewport(0, 0, width, height)
-
-    def on_key_press(self, symbol, modifiers):
-        if symbol in (KEY.ESCAPE, KEY.Q):
-            self.shutdown()
-
-    def on_mouse_press(self, x, y, button, modifiers):
-        """
-        See http://pyglet.readthedocs.io/en/pyglet-1.3-maintenance/programming_guide/mouse.html
-        """
-        pass
-
-    def on_mouse_release(self, x, y, button, modifiers):
-        pass
-
-    def on_mouse_drag(self, x, y, dx, dy, buttons, modifiers):
-        pass
-
-if __name__ == '__main__':
+if __name__ == "__main__":
     viewer = MotionViewer()
     pyglet.app.run()

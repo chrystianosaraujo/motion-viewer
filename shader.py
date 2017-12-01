@@ -1,6 +1,5 @@
 import OpenGL.GL as GL
 from OpenGL.GL import shaders
-import debugger
 
 class ShaderProgram:
     def __init__(self, vert_source_fn, frag_source_fn):
