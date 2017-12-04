@@ -36,12 +36,12 @@ class MotionRender:
         self._skeleton = skeleton
         self._motion_cache = {}
 
+        # Precompute frames
         for i in range(self._skeleton.frame_count):
             beg = time.time()
             self._skeleton.traverse(i, None)
             print(f'{i} -> {time.time() - beg}')
 
-        self.tmp = 0
         self._uniforms = {}
 
     def set_render_matrices(self, view, project):

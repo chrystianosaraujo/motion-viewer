@@ -137,6 +137,7 @@ class AnimatedSkeleton:
         self._frames = []
 
         self._traverse_func = None
+        self._traverse_func_nop = None
         self._motion_cache = {}
 
         self._identity = glm.mat4()
@@ -153,6 +154,7 @@ class AnimatedSkeleton:
             try:
                 self._root, self._frame_time, self._frames = bvh.import_bvh(path)
                 self._traverse_func = self._traverse_bvh
+                self._traverse_func_nop = self._traverse_bvh_nop
             except bvh.BVHFormatError as err:
                 raise FormatError(str(err))
         else:
@@ -167,6 +169,44 @@ class AnimatedSkeleton:
     @property
     def frame_time(self):
         return self._frame_time
+
+    # Traverses the internal hierarchy top-down calculating the combined
+    # transforms for the specified <frame>.
+    # <callback> is called for each encountered node
+    # callback(node_type : NodeType, node_name : str, transform)
+    # Transforms are affine 4x4
+    def traverse(self, frame, callback):
+        if frame not in range(0, self.frame_count):
+            # error()
+            return
+
+        if not self._root:
+            # error()
+            return
+
+        transform = glm.mat4(1.0)
+        self._traverse_func(frame, callback, self._root[0], transform)
+
+    # Returns a tuple containg all the joint rotations with associated
+    # node type for the specified frame. Multiple calls return the angles in
+    # the same order
+    def get_all_joint_rotations(self, frame):  # -> ([rotations], [types])
+        rotations = []
+        types = []
+
+        def gather_rotations(type, name, rotx, roty, rotz):
+            if rotx is not None:
+                rotations.append(rotx)
+                types.append(type)
+            if roty is not None:
+                rotations.append(roty)
+                types.append(type)
+            if rotz is not None:
+                rotations.append(rotz)
+                types.append(type)
+
+        self._traverse_func_nop(self._root[0], frame, gather_rotations)
+        return (rotations, types)
 
     # TODO: This should be cached
     def _find_type_bvh(self, name):
@@ -248,6 +288,7 @@ class AnimatedSkeleton:
                 transform = self._motion_cache[node.name][frame]
 
             if callback:
+                # TODO: Cache this
                 up = glm.vec3(0.0, 1.0, 0.0)
                 initial_dir_unnorm = glm.vec3(node.estimated_length)
                 initial_dir = glm.normalize(initial_dir_unnorm)
@@ -264,19 +305,16 @@ class AnimatedSkeleton:
                 traverse_stack.append(child)
                 transform_stack.append(transform)
 
-    # Traverses the internal hierarchy top-down calculating the combined
-    # transforms for the specified <frame>.
-    # <callback> is called for each encountered node
-    # callback(node_type : NodeType, node_name : str, transform)
-    # Transforms are affine 4x4
-    def traverse(self, frame, callback):
-        if frame not in range(0, self.frame_count):
-            # error()
-            return
+    def _traverse_bvh_nop(self, root, frame, callback):
+        traverse_stack = [root]
+        while traverse_stack:
+            node = traverse_stack.pop(0)
 
-        if not self._root:
-            # error()
-            return
+            rotx = self._frames[frame][node.rotx_idx] if node.rotx_idx is not None else None
+            roty = self._frames[frame][node.roty_idx] if node.roty_idx is not None else None
+            rotz = self._frames[frame][node.rotz_idx] if node.rotz_idx is not None else None
 
-        transform = glm.mat4(1.0)
-        self._traverse_func(frame, callback, self._root[0], transform)
+            callback(self._find_type_bvh(node.name), node.name, rotx, roty, rotz)
+
+            for child in node.children:
+                traverse_stack.append(child)
