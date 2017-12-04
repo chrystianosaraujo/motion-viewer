@@ -6,6 +6,7 @@ import copy
 
 # Motion Viewer
 import bvh
+import debugger as dbg
 
 # External
 import glm
@@ -63,6 +64,9 @@ class NodeType(enum.Enum):
     LEFT_SHIN = 41
     LEFT_FOOT = 42
 
+    LOWER_BACK = 43
+    SPINE = 44
+
 
 class UnsupportedError(Exception):
     pass
@@ -77,17 +81,17 @@ class FormatError(Exception):
 class AnimatedSkeleton:
     # Optimized for readability :)
     BVH_JOINT_NAMES = {
-        NodeType.HIP: ['hip'],
+        NodeType.HIP: ['hip', 'Hips', 'LHipJoint', 'RHipJoint'],
         NodeType.ABDOMEN: ['abdomen'],
         NodeType.CHEST: ['chest'],
-        NodeType.NECK: ['neck'],
-        NodeType.HEAD: ['head'],
+        NodeType.NECK: ['neck', 'Neck', 'Neck1'],
+        NodeType.HEAD: ['head', 'Head'],
         NodeType.LEFT_EYE: ['leftEye'],
         NodeType.RIGHT_EYE: ['rightEye'],
         NodeType.RIGHT_COLLAR: ['rCollar'],
-        NodeType.RIGHT_SHOULDER: ['rShldr'],
-        NodeType.RIGHT_FOREARM: ['rForeArm'],
-        NodeType.RIGHT_HAND: ['rHand'],
+        NodeType.RIGHT_SHOULDER: ['rShldr', 'RightShoulder'],
+        NodeType.RIGHT_FOREARM: ['rForeArm', 'RightArm', 'RightForeArm'],
+        NodeType.RIGHT_HAND: ['rHand', 'RightHand', 'RightForeArm'],
         NodeType.RIGHT_FINGER_THUMB1: ['rThumb1'],
         NodeType.RIGHT_FINGER_THUMB2: ['rThumb2'],
         NodeType.RIGHT_FINGER_INDEX1: ['rIndex1'],
@@ -114,14 +118,17 @@ class AnimatedSkeleton:
         NodeType.LEFT_FINGER_PINKY2: ['lPinky2'],
 
         NodeType.RIGHT_BUTTOCK: ['rButtock'],
-        NodeType.RIGHT_THIGH: ['rThigh'],
-        NodeType.RIGHT_SHIN: ['rShin'],
-        NodeType.RIGHT_FOOT: ['rFoot'],
+        NodeType.RIGHT_THIGH: ['rThigh', 'RightUpLeg'],
+        NodeType.RIGHT_SHIN: ['rShin', 'RightLeg'],
+        NodeType.RIGHT_FOOT: ['rFoot', 'RightFoot'],
 
         NodeType.LEFT_BUTTOCK: ['lButtock'],
-        NodeType.LEFT_THIGH: ['lThigh'],
-        NodeType.LEFT_SHIN: ['lShin'],
-        NodeType.LEFT_FOOT: ['lFoot']
+        NodeType.LEFT_THIGH: ['lThigh', 'LeftUpLeg'],
+        NodeType.LEFT_SHIN: ['lShin', 'LeftLeg'],
+        NodeType.LEFT_FOOT: ['lFoot', 'LeftFoot'],
+
+        NodeType.LOWER_BACK: ['LowerBack'],
+        NodeType.SPINE: ['Spine', 'Spine1'],
     }
 
     def __init__(self):
@@ -190,41 +197,67 @@ class AnimatedSkeleton:
                 offz = self._frames[frame][node.offz_idx] if node.offz_idx is not None else 0
 
                 if rotx:
-                    Rx = glm.rotate(self._identity, math.radians(rotx), glm.vec3(1.0, 0.0, 0.0))
+                    c = math.cos(math.radians(rotx))
+                    s = math.sin(math.radians(rotx))
+
+                    Rx = glm.mat4([1.0, 0.0, 0.0, 0.0],
+                                  [0.0, c, s, 0.0],
+                                  [0.0, -s, c, 0.0],
+                                  [0.0, 0.0, 0.0, 1.0])
+
                 else:
                     Rx = copy.copy(self._identity)
 
                 if roty:
-                    Ry = glm.rotate(self._identity, math.radians(roty), glm.vec3(0.0, 1.0, 0.0))
+                    c = math.cos(math.radians(roty))
+                    s = math.sin(math.radians(roty))
+
+                    Ry = glm.mat4([c, 0.0, -s, 0.0],
+                                  [0.0, 1.0, 0.0, 0.0],
+                                  [s, 0.0, c, 0.0],
+                                  [0.0, 0.0, 0.0, 1.0])
+
                 else:
                     Ry = copy.copy(self._identity)
 
                 if rotz:
-                    Rz = glm.rotate(self._identity, math.radians(rotz), glm.vec3(0.0, 0.0, 1.0))
+                    c = math.cos(math.radians(rotz))
+                    s = math.sin(math.radians(rotz))
+
+                    Rz = glm.mat4([c, s, 0.0, 0.0],
+                                  [-s, c, 0.0, 0.0],
+                                  [0.0, 0.0, 1.0, 0.0],
+                                  [0.0, 0.0, 0.0, 1.0])
+
                 else:
                     Rz = copy.copy(self._identity)
 
                 # Right to left multiplication
                 # R: Rz * Rx * Ry
                 R = Rz * Rx * Ry
+                T = glm.mat4([[1.0, 0.0, 0.0, 0.0],
+                              [0.0, 1.0, 0.0, 0.0],
+                              [0.0, 0.0, 1.0, 0.0],
+                              [offx + node.offset[0], offy + node.offset[1], offz + node.offset[2], 1.0]])
 
-                # M: TS
-                M = glm.translate(R, glm.vec3(offx + node.offset[0], offy + node.offset[1], offz + node.offset[2]))
-                transform = parent_transform * M
+                transform = parent_transform * R * T
                 if node.name not in self._motion_cache:
                     self._motion_cache[node.name] = {}
                 self._motion_cache[node.name][frame] = transform
             else:
                 transform = self._motion_cache[node.name][frame]
 
-            up = glm.vec3(0.0, 1.0, 0.0)
-            initial_dir_unnorm = glm.vec3(node.estimated_length)
-            initial_dir = glm.normalize(initial_dir_unnorm)
-            ortho = glm.cross(up, initial_dir)
-            angle = math.acos(glm.dot(up, initial_dir))
-            rest_rot = glm.rotate(glm.mat4(), angle, ortho)
-
             if callback:
+                up = glm.vec3(0.0, 1.0, 0.0)
+                initial_dir_unnorm = glm.vec3(node.estimated_length)
+                initial_dir = glm.normalize(initial_dir_unnorm)
+                ortho = glm.cross(up, initial_dir)
+                angle = math.acos(glm.dot(up, initial_dir))
+                if math.isnan(angle):
+                    rest_rot = glm.mat4()
+                else:
+                    rest_rot = glm.rotate(glm.mat4(), angle, ortho)
+
                 callback(self._find_type_bvh(node.name), node.name, transform, glm.length(initial_dir_unnorm), rest_rot)
 
             for child in node.children:
@@ -237,9 +270,6 @@ class AnimatedSkeleton:
     # callback(node_type : NodeType, node_name : str, transform)
     # Transforms are affine 4x4
     def traverse(self, frame, callback):
-        if not callback:
-            return
-
         if frame not in range(0, self.frame_count):
             # error()
             return

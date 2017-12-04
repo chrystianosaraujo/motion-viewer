@@ -4,11 +4,13 @@ import numpy as np
 from enum import Enum
 import OpenGL.GL as GL
 
+import time
 import mesh
 from shader import ShaderProgram
 
 from skeleton import AnimatedSkeleton
 from skeleton import NodeType as NT
+import debugger as dbg
 
 
 class MotionRender:
@@ -16,7 +18,8 @@ class MotionRender:
                             NT.RIGHT_COLLAR, NT.RIGHT_SHOULDER, NT.RIGHT_FOREARM, NT.RIGHT_HAND,
                             NT.LEFT_COLLAR, NT.LEFT_SHOULDER, NT.LEFT_FOREARM, NT.LEFT_HAND,
                             NT.RIGHT_BUTTOCK, NT.RIGHT_THIGH, NT.RIGHT_SHIN, NT.RIGHT_FOOT,
-                            NT.LEFT_BUTTOCK, NT.LEFT_THIGH, NT.LEFT_SHIN, NT.LEFT_FOOT]
+                            NT.LEFT_BUTTOCK, NT.LEFT_THIGH, NT.LEFT_SHIN, NT.LEFT_FOOT,
+                            NT.LOWER_BACK, NT.SPINE]
 
     class VertexAttributes(Enum):
         """ Name of each used vertex attribute"""
@@ -33,9 +36,13 @@ class MotionRender:
         self._skeleton = skeleton
         self._motion_cache = {}
 
-        self._uniforms = {}
+        for i in range(self._skeleton.frame_count):
+            beg = time.time()
+            self._skeleton.traverse(i, None)
+            print(f'{i} -> {time.time() - beg}')
 
-        self.tmp = glm.value_ptr(glm.mat4(1.0))
+        self.tmp = 0
+        self._uniforms = {}
 
     def set_render_matrices(self, view, project):
         self._view_matrix = view
@@ -49,10 +56,7 @@ class MotionRender:
         if ntype not in MotionRender.SUPPORTED_NODE_TYPES:
             return
 
-        # if ntype in [NT.LEFT_SHIN, NT.RIGHT_SHIN, NT.RIGHT_FOREARM, NT.LEFT_FOREARM, NT.HEAD]:
-        #     model = transform * rest_rot
-        # else:
-        scale = glm.scale(glm.mat4(), glm.vec3(1.0, length, 1.0))
+        scale = glm.scale(glm.mat4(), glm.vec3(1.0, max(length, 1.0), 1.0))
         model = transform * rest_rot * scale
 
         # PyGLM still does not have binding for inverseTranpose.
@@ -60,11 +64,10 @@ class MotionRender:
         # matrix. It is needed since glm.mat3 is still not fully supported by PyGLM.
         model_view = self._view_matrix * model
         normal_matrix = glm.transpose(glm.inverse(glm.mat4(glm.mat3(model_view))))
-
         # Updating uniforms
-        tmp = np.array((4, 4), dtype=np.float32)
+
         GL.glUniformMatrix4fv(self._uniforms['model_mat_loc'], 1, GL.GL_FALSE, np.ascontiguousarray(model))
-        GL.glUniformMatrix4fv(self._uniforms['normal_mat_loc'], 1, GL.GL_FALSE, np.ascontiguousarray(normal_matrix))
+        GL.glUniformMatrix4fv(self._uniforms['normal_mat_loc'], 1, GL.GL_FALSE, np.ascontiguousarray(glm.mat4().value))
 
         GL.glBindVertexArray(self._vao)
 
@@ -98,12 +101,6 @@ class MotionRender:
         GL.glUniform1f(self._uniforms['shininess_loc'], self._shininess)
 
         self._skeleton.traverse(frame, self._on_draw_part)
-
-        GL.glUniform4fv(self._uniforms['ambient_color_loc'], 1, np.ascontiguousarray(glm.vec4(1.0, 0.0, 0.0, 1.0)))
-        GL.glUniform4fv(self._uniforms['diffuse_color_loc'], 1, np.ascontiguousarray(glm.vec4(1.0, 0.0, 0.0, 1.0)))
-        GL.glUniform4fv(self._uniforms['specular_color_loc'], 1, np.ascontiguousarray(glm.vec4(1.0, 0.0, 0.0, 1.0)))
-
-        #self._skeleton.traverse(frame, self._on_draw_part_offset)
 
         return
 

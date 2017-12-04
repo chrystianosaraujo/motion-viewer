@@ -21,12 +21,19 @@ class MotionViewer(pyglet.window.Window):
         caption = "CPSC 526 - Final Project: Chrystiano Araujo & Edoardo Dominici"
         vsync_enabled = True
 
+        platform = pyglet.window.get_platform()
+        display = platform.get_default_display()
+        screen = display.get_screens()[0]
+        config = screen.get_best_config()
+        print(config)
+
         init_data = {
             "width": screen_size[0],
             "height": screen_size[1],
             "caption": caption,
             "resizable": True,
             "vsync": vsync_enabled,
+            "config": config
         }
 
         super(MotionViewer, self).__init__(**init_data)
@@ -34,7 +41,7 @@ class MotionViewer(pyglet.window.Window):
         self._fps_display = pyglet.clock.ClockDisplay()
 
         self._events_cb = {}
-        self._background_color = [0.12, 0.12, 0.12, 1.0]
+        self._background_color = [0.0, 0.0, 0.0, 1.0]
 
         self._camera = FirstPersonCamera(screen_size[0] / screen_size[1])
 
@@ -70,6 +77,8 @@ class MotionViewer(pyglet.window.Window):
         self._motion_render.draw(self._frame)
         # floor_render.draw()
 
+        self._fps_display.draw()
+
         self._frame += 1
 
     def on_mouse_motion(self, x, y, dx, dy):
@@ -81,6 +90,8 @@ class MotionViewer(pyglet.window.Window):
     def on_key_release(self, symbol, mod):
         if symbol == pyglet.window.key.Q:
             pyglet.app.exit()
+        if symbol == pyglet.window.key.R:
+            self._frame = 0
         self._camera.on_key_up(symbol)
 
     def _setup_gl(self):
@@ -89,7 +100,8 @@ class MotionViewer(pyglet.window.Window):
 
     def _setup_renderers(self):
         skeleton = AnimatedSkeleton()
-        skeleton.load_from_file('bvh_cmu/02/02_01.bvh')
+        skeleton.load_from_file('bvh_cmu/01/01_01.bvh')
+
         self._motion_render = MotionRender(skeleton)
 
 
