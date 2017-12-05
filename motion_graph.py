@@ -38,6 +38,12 @@ class MotionGraph:
             TODO: Handle more than one motion:
         """
 
+        import cProfile, pstats, io
+        pr = cProfile.Profile()
+        pr.enable()
+
+        self._build_list_of_poses()
+
         num_frames = self.num_frames
         self._similarity_mat = np.empty([num_frames, num_frames], dtype=np.float32)
 
@@ -56,29 +62,29 @@ class MotionGraph:
         num_threads = 3#multiprocessing.cpu_count() // 2
         rows_per_thread = num_frames // num_threads
 
-        threads = []
-        for i in range(num_threads):
-            first_row = i * rows_per_thread
-            last_row  = first_row + rows_per_thread - 1
+        #threads = []
+        #for i in range(num_threads):
+        #    first_row = i * rows_per_thread
+        #    last_row  = first_row + rows_per_thread - 1
 
-            if i == num_threads - 1: 
-              last_row  = num_frames - 1
+        #    if i == num_threads - 1: 
+        #      last_row  = num_frames - 1
 
-            t = threading.Thread(target=parallel_worker, args=(i, first_row, last_row))
-            t.start()
-            threads.append(t)
+        #    t = threading.Thread(target=parallel_worker, args=(i, first_row, last_row))
+        #    t.start()
+        #    threads.append(t)
 
-        # Waiting all threads to finish
-        for thread in threads:
-            thread.join()
+        ## Waiting all threads to finish
+        #for thread in threads:
+        #    thread.join()
 
-        logging.debug("[DEBUG] All threads have finished!")
-        #for i in range(num_frames):
-        #    print("{}/{} - ({:.3f})%".format(i, num_frames, i / num_frames))
-        #    for j in range(num_frames):
-        #        self._similarity_mat[i, j] = self._difference_between_frames(i, j)
+        #logging.debug("[DEBUG] All threads have finished!")
+        for i in range(num_frames):
+            print("{}/{} - ({:.3f})%".format(i, num_frames, i / num_frames * 100))
+            for j in range(num_frames):
+                self._similarity_mat[i, j] = self._difference_between_frames(i, j)
 
-        np.savetxt('d:\\test.out', self._similarity_mat, fmt='%1.4f')
+        #np.savetxt('d:\\test.out', self._similarity_mat, fmt='%1.4f')
 
         # Normalizes the distance values and convertes from distance to 
         # similarity (basically similatiry = 1 - distance)
@@ -88,7 +94,13 @@ class MotionGraph:
         elem_wise_operation = np.vectorize(lambda x : 1.0 if x != x else ((x - min_value) / (max_value - min_value)))
         self._similarity_mat = elem_wise_operation(self._similarity_mat)
 
-        np.savetxt('d:\\test_normalized.out', self._similarity_mat, fmt='%1.4f')
+        #np.savetxt('d:\\test_normalized.out', self._similarity_mat, fmt='%1.4f')
+        pr.disable()
+        s = io.StringIO()
+        sortby = 'time'
+        ps = pstats.Stats(pr, stream=s).sort_stats(sortby)
+        ps.print_stats()
+        print(s.getvalue())
 
 
     @property
@@ -138,8 +150,10 @@ class MotionGraph:
             diff_vec = np.subtract(window_i[x], window_j[x])
             accum_distance += np.inner(diff_vec, diff_vec)
 
-        return accum_distance
+        #diff_vec = window_i - window_j
+        #return np.linalg.norm(diff_vec)
 
+        return accum_distance
 
     def _motion_window(self, begin_frame, end_frame):
         """ Returns the interval of motion frames given the first and last
@@ -172,7 +186,9 @@ class MotionGraph:
             raise RuntimeError("Invalid motion returned for the given frame index.")
 
         # Ignoring joint types so far
-        return [motion.get_all_joint_rotations(i)[0] for i in range(begin_frame, end_frame + 1)]
+        #test = [motion.get_all_joint_rotations(i)[0] for i in range(begin_frame, end_frame + 1)]
+        #test2 = self._frames_pose[begin_frame : end_frame + 1, ]
+        return self._frames_pose[begin_frame : end_frame + 1, ]
 
     def _motion_data_containing_frame(self, frame_idx):
         """ Returns the motion data related to the given global frame index.
@@ -191,13 +207,23 @@ class MotionGraph:
         pillow_compatible = (self._similarity_mat * 255).astype('uint8')
         return Image.fromarray(pillow_compatible, "L")
 
+    def _build_list_of_poses(self):
+        first_motion = self._motion_data_containing_frame(0)
+        pose_dimensions = len(first_motion.get_all_joint_rotations(0)[0])
+
+        self._frames_pose = np.empty((self.num_frames, pose_dimensions), dtype=np.float32)
+
+        for i in range(self.num_frames):
+            self._frames_pose[i:] = motion.get_all_joint_rotations(i)[0]
+
 if __name__ == "__main__":
     from skeleton import *
     logging.basicConfig(level=logging.DEBUG)
     motion = AnimatedSkeleton()
-    motion.load_from_file("C:\\Users\\admin-araujo\\PhD\\Courses\\CPSC 526 - Animation\\FinalProject\\data\\02\\02_02.bvh")
+    motion.load_from_file("F:\\caraujo\\PhD\\Courses\\Computer Animation\\FinalProject\\motion-viewer\\data\\06\\06_10.bvh")
+    #motion.load_from_file("F:\\caraujo\\PhD\\Courses\\Computer Animation\\FinalProject\\motion-viewer\\data\\02\\02_02.bvh")
 
-    graph = MotionGraph(15)
+    graph = MotionGraph(30)
     graph.add_motion(motion)
     import time
     start = time.time()

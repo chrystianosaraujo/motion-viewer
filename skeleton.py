@@ -142,6 +142,11 @@ class AnimatedSkeleton:
 
         self._identity = glm.mat4()
 
+        self._bvh_types = {}
+        for t, names in AnimatedSkeleton.BVH_JOINT_NAMES.items():
+            for name in names:
+                self._bvh_types[name] = t
+
     def __len__(self):
         return len(self._frames)
 
@@ -213,10 +218,11 @@ class AnimatedSkeleton:
 
     # TODO: This should be cached
     def _find_type_bvh(self, name):
-        for t, names in AnimatedSkeleton.BVH_JOINT_NAMES.items():
-            if name in names:
-                return t
-        return None
+        return self._bvh_types.get(name)
+        #for t, names in AnimatedSkeleton.BVH_JOINT_NAMES.items():
+        #    if name in names:
+        #        return t
+        #return None
 
     def _traverse_bvh(self, frame, callback, node, base_transform):
         traverse_stack = [node]
