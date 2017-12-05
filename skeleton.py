@@ -142,6 +142,9 @@ class AnimatedSkeleton:
 
         self._identity = glm.mat4()
 
+    def __len__(self):
+        return len(self._frames)
+
     # Loads the skeleton from file
     # Currently only BVH (Biovision Hierarchy) is supported
     # OSError is raised if <path> couldn't be opened
