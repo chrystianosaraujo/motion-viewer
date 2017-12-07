@@ -3,8 +3,40 @@ from PIL import Image
 import multiprocessing
 import threading
 import logging
+import scipy
+from scipy import ndimage
 
 import numpy as np
+
+LOCAL_MINIMA_TOLERANCE = 1E-2
+SAME_MOTION_SIMILARITY_TOL = (0.1, 0.3)
+DIFF_MOTION_SIMILARITY_TOL = (0.0, 0.3)
+
+def normalize_np_matrix(mat):
+  min_value = np.nanmin(mat)
+  max_value = np.nanmax(mat)
+
+  elem_wise_operation = np.vectorize(lambda x : 1.0 if x != x else ((x - min_value) / (max_value - min_value)))
+  return elem_wise_operation(mat)
+
+def from_matrix_to_image(mat, normalize = False, border = (0, 0)):
+    if normalize:
+        mat = normalize_np_matrix(mat, border)
+
+    #im = Image.new("RGB", mat.shape)
+    #data = [(int(mat[x, y] * 255), int(mat[x, y] * 255), int(mat[x, y] * 255)) for y in range(im.size[1]) for x in range(im.size[0])]
+    #im.putdata(data)
+
+    #return im
+    return Image.fromarray((mat * 255).astype('uint8'), "L")
+
+def gradient_magnitude(gx, gy):
+    out = np.empty(gx.shape, dtype=np.float32)
+    for i in range(gx.shape[0]):
+      for j in range(gx.shape[1]):
+          out[i, j] = math.sqrt(math.pow(gx[i, j], 2) + math.pow(gy[i, j], 2))
+
+    return out
 
 class MotionGraph:
     INVALID_DISTANCE = float("nan")
@@ -37,64 +69,13 @@ class MotionGraph:
         Notes:
             TODO: Handle more than one motion:
         """
-
         import cProfile, pstats, io
         pr = cProfile.Profile()
         pr.enable()
 
-        self._build_list_of_poses()
+        self._build_similarity_matrix()
+        self._find_local_minima()
 
-        num_frames = self.num_frames
-        self._similarity_mat = np.empty([num_frames, num_frames], dtype=np.float32)
-
-        def parallel_worker(thread_i, first_row, last_row):
-            logging.debug("[DEBUG] (Thread {}) Starting - Rows[{}, {}]".format(thread_i, first_row, last_row))
-
-            for i in range(first_row, last_row + 1):
-                logging.debug("[DEBUG] (Thread {}) {}/{} - ({:.3f})%".format(thread_i, i,range(first_row, last_row + 1)[-1], i / range(first_row, last_row + 1)[-1]))
-                for j in range(num_frames):
-                    #self._similarity_mat[i, j] = self._difference_between_frames(i, j)
-                    x = self._difference_between_frames(i, j)
-
-            logging.debug("[DEBUG] (Thread {}) Exiting".format(thread_i))
-
-        # Compute the distance between each pair of frame
-        num_threads = 3#multiprocessing.cpu_count() // 2
-        rows_per_thread = num_frames // num_threads
-
-        #threads = []
-        #for i in range(num_threads):
-        #    first_row = i * rows_per_thread
-        #    last_row  = first_row + rows_per_thread - 1
-
-        #    if i == num_threads - 1: 
-        #      last_row  = num_frames - 1
-
-        #    t = threading.Thread(target=parallel_worker, args=(i, first_row, last_row))
-        #    t.start()
-        #    threads.append(t)
-
-        ## Waiting all threads to finish
-        #for thread in threads:
-        #    thread.join()
-
-        #logging.debug("[DEBUG] All threads have finished!")
-        for i in range(num_frames):
-            print("{}/{} - ({:.3f})%".format(i, num_frames, i / num_frames * 100))
-            for j in range(num_frames):
-                self._similarity_mat[i, j] = self._difference_between_frames(i, j)
-
-        #np.savetxt('d:\\test.out', self._similarity_mat, fmt='%1.4f')
-
-        # Normalizes the distance values and convertes from distance to 
-        # similarity (basically similatiry = 1 - distance)
-        min_value = np.nanmin(self._similarity_mat)
-        max_value = np.nanmax(self._similarity_mat)
-
-        elem_wise_operation = np.vectorize(lambda x : 1.0 if x != x else ((x - min_value) / (max_value - min_value)))
-        self._similarity_mat = elem_wise_operation(self._similarity_mat)
-
-        #np.savetxt('d:\\test_normalized.out', self._similarity_mat, fmt='%1.4f')
         pr.disable()
         s = io.StringIO()
         sortby = 'time'
@@ -102,58 +83,139 @@ class MotionGraph:
         ps.print_stats()
         print(s.getvalue())
 
+    def _build_similarity_matrix(self):
+        self._build_list_of_poses()
+
+        num_frames = self.num_frames
+        self._similarity_mat = np.empty([num_frames, num_frames], dtype=np.float32)
+
+        # Compute the distance between each pair of frame
+        for i in range(num_frames):
+            print("[DEBUG] (Build MotionGraph {}/{} - ({:.3f})%".format(i, num_frames - 1, i/(num_frames-1) * 100))
+            for j in range(num_frames):
+                self._similarity_mat[i, j] = self._difference_between_frames(i, j)
+
+        shape = (0, len(self._motions[0]), 0, len(self._motions[0]))
+        self._similarity_mat[shape[0]:shape[1], shape[2]:shape[3]] = normalize_np_matrix(self._similarity_mat[shape[0]:shape[1], shape[2]:shape[3]])
+
+        shape = (len(self._motions[0]), self._similarity_mat.shape[0], 0, len(self._motions[0]))
+        self._similarity_mat[shape[0]:shape[1], shape[2]:shape[3]] = normalize_np_matrix(self._similarity_mat[shape[0]:shape[1], shape[2]:shape[3]])
+
+        shape = (0, len(self._motions[0]), len(self._motions[0]), self._similarity_mat.shape[1])
+        self._similarity_mat[shape[0]:shape[1], shape[2]:shape[3]] = normalize_np_matrix(self._similarity_mat[shape[0]:shape[1], shape[2]:shape[3]])
+
+        shape = (len(self._motions[0]), self._similarity_mat.shape[0], len(self._motions[0]), self._similarity_mat.shape[1])
+        self._similarity_mat[shape[0]:shape[1], shape[2]:shape[3]] = normalize_np_matrix(self._similarity_mat[shape[0]:shape[1], shape[2]:shape[3]])
+
+        #self._similarity_mat = normalize_np_matrix(self._similarity_mat)
+
+    def _find_local_minima(self):
+        # Compute the gradient of the similarity matrix
+        gx, gy = np.gradient(self._similarity_mat)
+        gradient_mat = gradient_magnitude(gx, gy)
+
+        np.savetxt("./mat.log", gradient_mat, fmt='%1.4f')
+
+        all_minima = []
+        all_minimum_pixels = np.zeros(gradient_mat.shape)
+        for i in range(gradient_mat.shape[0]):
+            for j in range(gradient_mat.shape[1]):
+                TOLERANCE = DIFF_MOTION_SIMILARITY_TOL
+
+                if self._motion_data_containing_frame(i) ==\
+                   self._motion_data_containing_frame(j):
+                  TOLERANCE = SAME_MOTION_SIMILARITY_TOL
+
+                if gradient_mat[i, j] < LOCAL_MINIMA_TOLERANCE:
+                      all_minima.append((i, j, self._similarity_mat[i, j]))
+                      if self._similarity_mat[i, j] >= TOLERANCE[0] and self._similarity_mat[i,j] <= TOLERANCE[1]:
+                          all_minimum_pixels[i, j] = 1.0
+        #            all_minima_img_pixels[i * self.num_frames + j] = (255, 0, 0)
+        #        #else:
+        #        #    local_minima_img[i,j] = (grad_image[i, j], grad_image[i, j], grad_image[i, j])
+
+        Image.fromarray((all_minimum_pixels * 255).astype('uint8'), "L").show()
+
+        # Normalizes the distance values and convertes from distance to 
+        # similarity (basically similatiry = 1 - distance)
+        #min_value = np.nanmin(self._similarity_mat)
+        #max_value = np.nanmax(self._similarity_mat)
+
+        #elem_wise_operation = np.vectorize(lambda x : 1.0 if x != x else ((x - min_value) / (max_value - min_value)))
+        #self._similarity_mat = elem_wise_operation(self._similarity_mat)
+        norm = normalize_np_matrix(self._similarity_mat)
+        Image.fromarray((norm * 400).astype('uint8'), "L").save("f:\\test.png")
+
+        #local_minima_img.save("f:\\local_minima.png")
+        #from_matrix_to_image(gx).save("f:\\gx.png")
+        #from_matrix_to_image(gy).save("f:\\gy.png")
+        #from_matrix_to_image(gradient_mat, True).save("f:\\mag.png")
+        #from_matrix_to_image(new_grad, True, (self._window_length, self._window_length)).save("f:\\mag2.png")
+        from_matrix_to_image(self._similarity_mat, False).save("f:\\similarity.png")
 
     @property
     def num_frames(self):
-        summation_func = lambda x, y: len(x) + len(y)
-        return reduce(summation_func, self._motions, [])
+        #import ipdb; ipdb.set_trace()
+        #summation_func = lambda x, y: len(x) + len(y)
+        #return reduce(summation_func, self._motions, [])
+        count = 0
+        for motion in self._motions:
+            count += len(motion)
+        return count
 
-    def save_as_image(self, fn):
-        """ Saves the similarity matrix as a grayscale image.
+    def get_similarity_matrix_as_image(self):
+        """ Builds a greyscale image using the similarity matrix data.
 
-        Args:
-            fn (string): output image filename.
-
-        Notes:
-             This function can only be called after building the MotionGraph. Otherwise,
-             a RuntimeError will be raised.
-        """
-        self._motion_graph_image().save(fn)
-
-    def show_as_image(self):
-        """ Shows the similarity matrix as a grayscale image.
+        Returns:
+            Returns the greyscale image (PIL.Image)
 
         Notes:
              This function can only be called after building the MotionGraph. Otherwise,
              a RuntimeError will be raised.
         """
-        self._motion_graph_image().show()
+
+        if self._similarity_mat is None:
+            raise RuntimeError("MotionGraph.get_similarity_matrix_as_image function can only be called after " +\
+                               "calling MotionGraph.build function.")
+
+        return self._motion_graph_image()
+
+    def save_similarity_mat_as_txt_file(self, fn):
+        """ Saves the similarity matrix in text file.
+
+        Notes:
+             This function can only be called after building the MotionGraph. Otherwise,
+             a RuntimeError will be raised.
+        """
+
+        if self._similarity_mat is None:
+            raise RuntimeError("MotionGraph.save_similarity_mat_as_txt_file function can only be called after " +\
+                               "calling MotionGraph.build function.")
+
+        np.savetxt(fn, self._similarity_mat, fmt='%1.4f')
 
     def _difference_between_frames(self, i, j):
-        # The distance between a frame and itself is not considered.
-        if i == j:
-            return MotionGraph.INVALID_DISTANCE
+        ## Clamp window size to shortest possible. It is important to handle poses at the beginning
+        ## and at the end of the animation
+        #win_length = self._window_length
+        #if (i + win_length) > (self.num_frames - 1) or (j - win_length) < 0:
+        #       win_length = min(self.num_frames - i, j + 1)
 
         window_i = self._motion_window(i, i + self._window_length - 1)
         window_j = self._motion_window(j - (self._window_length - 1), j)
-  
+        #window_i = self._motion_window(i, i + win_length - 1)
+        #window_j = self._motion_window(j - (win_length- 1), j)
+
         if window_i is None or window_j is None:
             return MotionGraph.INVALID_DISTANCE
-  
+
         if len(window_i) != len(window_j):
             raise RuntimeError("Distance metric can only be computed for motion windows " +\
                                "with the same length.")
 
-        # Computes the squared distance between the two windows
-        accum_distance = 0.0
-        for x in range(len(window_i)):
-            diff_vec = np.subtract(window_i[x], window_j[x])
-            accum_distance += np.inner(diff_vec, diff_vec)
-
-        #diff_vec = window_i - window_j
-        #return np.linalg.norm(diff_vec)
-
-        return accum_distance
+        # Computes the distance between the two windows
+        diff_vec = window_i - window_j
+        return np.linalg.norm(diff_vec)
 
     def _motion_window(self, begin_frame, end_frame):
         """ Returns the interval of motion frames given the first and last
@@ -185,14 +247,11 @@ class MotionGraph:
         if motion is None:
             raise RuntimeError("Invalid motion returned for the given frame index.")
 
-        # Ignoring joint types so far
-        #test = [motion.get_all_joint_rotations(i)[0] for i in range(begin_frame, end_frame + 1)]
-        #test2 = self._frames_pose[begin_frame : end_frame + 1, ]
         return self._frames_pose[begin_frame : end_frame + 1, ]
 
     def _motion_data_containing_frame(self, frame_idx):
-        """ Returns the motion data related to the given global frame index.
-        """
+        """ Returns the motion data related to the given global frame index."""
+
         local_idx = frame_idx
 
         for motion in self._motions:
@@ -201,7 +260,7 @@ class MotionGraph:
             else:
                 local_idx -= len(motion)
 
-        return None
+        raise RuntimeError("Could not find the motion graph related to the given frame index ({}).".format(frame_idx))
 
     def _motion_graph_image(self):
         pillow_compatible = (self._similarity_mat * 255).astype('uint8')
@@ -213,20 +272,32 @@ class MotionGraph:
 
         self._frames_pose = np.empty((self.num_frames, pose_dimensions), dtype=np.float32)
 
-        for i in range(self.num_frames):
-            self._frames_pose[i:] = motion.get_all_joint_rotations(i)[0]
+        offset = 0
+        for motion in self._motions:
+            for i in range(len(motion)):
+                self._frames_pose[offset + i:] = motion.get_all_joint_rotations(i)[0]
+
+            offset += len(motion)
+
+    def _generate_graph(self):
+        # self._local_minima = np.array((NUM_MINIMA, 2))
 
 if __name__ == "__main__":
     from skeleton import *
     logging.basicConfig(level=logging.DEBUG)
-    motion = AnimatedSkeleton()
-    motion.load_from_file("F:\\caraujo\\PhD\\Courses\\Computer Animation\\FinalProject\\motion-viewer\\data\\06\\06_10.bvh")
-    #motion.load_from_file("F:\\caraujo\\PhD\\Courses\\Computer Animation\\FinalProject\\motion-viewer\\data\\02\\02_02.bvh")
+    motion0 = AnimatedSkeleton()
+    motion0.load_from_file("F:\\caraujo\\PhD\\Courses\\Computer "
+            "Animation\\FinalProject\\motion-viewer\\data\\02\\02_02.bvh")
+    motion1 = AnimatedSkeleton()
+    motion1.load_from_file("F:\\caraujo\\PhD\\Courses\\Computer "
+            "Animation\\FinalProject\\motion-viewer\\data\\02\\02_03.bvh")
 
     graph = MotionGraph(30)
-    graph.add_motion(motion)
+    graph.add_motion(motion0)
+    graph.add_motion(motion1)
+
     import time
     start = time.time()
     graph.build()
     print('It took {0:0.1f} seconds'.format(time.time() - start))
-    graph.show_as_image()
+    graph.get_similarity_matrix_as_image().show()
