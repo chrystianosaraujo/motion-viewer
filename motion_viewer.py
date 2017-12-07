@@ -104,7 +104,7 @@ class MotionViewer(pyglet.window.Window):
 
     def _setup_renderers(self):
         skeleton = AnimatedSkeleton()
-        skeleton.load_from_file('bvh_cmu/02/02_03.bvh')
+        skeleton.load_from_file('data/02/02_03.bvh')
 
         self._motion_render = MotionRender(skeleton)
         self._environment_render = EnvironmentRender()
