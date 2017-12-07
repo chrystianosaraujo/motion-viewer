@@ -1,0 +1,6 @@
+- Fix the motion path's transformations
+- Build the motion graph
+- GUI
+- Refactor the code
+- Prune Graph
+- 
