@@ -4,6 +4,7 @@ import multiprocessing
 import threading
 import logging
 import scipy
+from graphviz import Digraph
 from scipy import ndimage
 
 import numpy as np
@@ -38,7 +39,22 @@ def gradient_magnitude(gx, gy):
 
     return out
 
+
 class MotionGraph:
+	class Edge:
+		def __init__(self, src, dst, motion, frames):
+			self._src = src
+			self._dst = dst
+			self._motion = motion
+			self._frames = frames
+
+	class Node:
+		def __init__(self, motion):
+			self.label = ''
+			self.motion = motion
+			self.out = []
+
+
     INVALID_DISTANCE = float("nan")
 
     def __init__(self, window_length):
@@ -49,6 +65,7 @@ class MotionGraph:
             raise RuntimeError("Window length must be an integer value greater than zero.")
 
         self._window_length = window_length
+        self._nodes = []
 
     def add_motion(self, motion):
         """ Adds a new motion in the motion graph.
@@ -144,14 +161,14 @@ class MotionGraph:
         #elem_wise_operation = np.vectorize(lambda x : 1.0 if x != x else ((x - min_value) / (max_value - min_value)))
         #self._similarity_mat = elem_wise_operation(self._similarity_mat)
         norm = normalize_np_matrix(self._similarity_mat)
-        Image.fromarray((norm * 400).astype('uint8'), "L").save("f:\\test.png")
+        Image.fromarray((norm * 400).astype('uint8'), "L").save("test.png")
 
         #local_minima_img.save("f:\\local_minima.png")
         #from_matrix_to_image(gx).save("f:\\gx.png")
         #from_matrix_to_image(gy).save("f:\\gy.png")
         #from_matrix_to_image(gradient_mat, True).save("f:\\mag.png")
         #from_matrix_to_image(new_grad, True, (self._window_length, self._window_length)).save("f:\\mag2.png")
-        from_matrix_to_image(self._similarity_mat, False).save("f:\\similarity.png")
+        from_matrix_to_image(self._similarity_mat, False).save("similarity.png")
 
     @property
     def num_frames(self):
@@ -279,18 +296,105 @@ class MotionGraph:
 
             offset += len(motion)
 
+    def _motion_frame_number(self, motion, gframe):
+    	for cur in self._motions:
+    		if cur == self._motions:
+    			return gframe
+    		gframe -= cur.num_frames
+
+    def _graph_find_frame(self, motion, frame):
+    	for node in self._nodes:
+    		if node.motion == motion:
+    			cur = node
+    			while True:
+    				for out_edge in cur.out:
+    					if out_edge.motion == motion:
+    						if frame < out_edge.frames[-1]:
+    							return out_edge
+    						cur = out_edge
+    						break
+
+    def _graph_export_graphviz(self):
+    	dot = Digraph(comment='Motion Graph')
+
+    	# We like recursive..
+    	def _export_node_rec(node):
+    		dot.node(id(node), node.label)
+    		for out_edge in node.out:
+    			dot.edge([id(out_edge.src), id(out_edge.dst)])
+				_export_node_rec(out_edge.dst)
+
+    	for node in self._nodes:
+    		_export_node_rec(node)
+
+    	# dot.render() ??? TODO
+
+
+    # self._local_minima = np.array((NUM_MINIMA, 2))
     def _generate_graph(self):
-        # self._local_minima = np.array((NUM_MINIMA, 2))
+    	self._nodes.clear()	
+
+    	# Creating one transition for each input motion
+     	for motion in self._motions:
+     		motion_beg = Node(motion)
+     		motion_end = Node(motion)
+     		transition = Edge(motion_beg, motion_end, motion, np.arange(motion.num_frames))
+     		motion_beg.out.append(transition)
+     		self._nodes.append(motion_beg)
+
+     	# Insert transitions between motions for each local minima 
+     	for minima in self._local_minima:
+     		gsrc, gdst = minima
+     		src_motion = self._motion_data_containing_frame(gsrc)
+     		dst_motion = self._motion_data_containing_frame(gdst)
+
+     		# Getting frame idx relative to motion path
+     		src = self._motion_frame_number(src_motion, gsrc)
+     		dst = self._motion_frame_number(dst_motion, gdst)
+
+     		if src_motion is None:
+            	raise RuntimeError("Invalid motion returned for the given frame index.")
+
+            src_edge = self._graph_find_frame(src_motion, src)
+            dst_edge = self._graph_find_frame(dst_motion, dst)
+			
+			# New split nodes
+			new_src_node = Node(src_motion)
+            new_dst_node = Node(dst_motion)
+            
+            transition = Edge(new_src_node, new_dst_node, None, [0]) # TODO Syntesize new frames!!
+
+         	# Creating and inserting new transition
+            src_edge.src.out.remove(src_edge)
+            # dst_edge.dst.in.remove(src_edge)
+
+            # Creating 4 new edges
+            # B-------->E ~ B--(new_src_edge0)-->(new_src_node)--(new_src_edge1)-->E
+            new_src_edge0 = Edge(src_edge.src, new_src_node)
+            new_src_edge1 = Edge(new_src_node, src_edge.dst)
+            new_dst_edge0 = Edge(dst_edge.src, new_dst_node)
+            new_dst_edge1 = Edge(new_dst_node, dst_edge.dst)
+
+            # Adding edges to respective nodes
+            src_edge.src.out.append(new_src_edge0)
+            dst_edge.src.out.append(new_dst_edge0)
+            new_src_node.out.append(new_src_edge1)
+            new_dst_node.out.append(new_dst_edge1)
+
+
+        # Prune graph
+
+        # Export
+        self._graph_export_graphviz()
+
 
 if __name__ == "__main__":
     from skeleton import *
     logging.basicConfig(level=logging.DEBUG)
     motion0 = AnimatedSkeleton()
-    motion0.load_from_file("F:\\caraujo\\PhD\\Courses\\Computer "
-            "Animation\\FinalProject\\motion-viewer\\data\\02\\02_02.bvh")
+    motion0.load_from_file("data\\02\\02_02.bvh")
     motion1 = AnimatedSkeleton()
-    motion1.load_from_file("F:\\caraujo\\PhD\\Courses\\Computer "
-            "Animation\\FinalProject\\motion-viewer\\data\\02\\02_03.bvh")
+    motion1.load_from_file("data\\02\\02_03.bvh")
 
     graph = MotionGraph(30)
     graph.add_motion(motion0)

@@ -10,6 +10,7 @@ import sys
 from motion_render import MotionRender
 from skeleton import AnimatedSkeleton
 from camera import FirstPersonCamera
+from environment_render import EnvironmentRender
 
 
 class MotionViewer(pyglet.window.Window):
@@ -25,6 +26,7 @@ class MotionViewer(pyglet.window.Window):
         display = platform.get_default_display()
         screen = display.get_screens()[0]
         config = screen.get_best_config()
+        config.samples = 4
         print(config)
 
         init_data = {
@@ -51,13 +53,9 @@ class MotionViewer(pyglet.window.Window):
         self._setup_renderers()
         self.set_exclusive_mouse(True)
 
-        pyglet.clock.schedule_interval(self.on_update, 1.0 / 120)
-
-    def run(self):
-        while True:
-            self._handle_events()
-            self._camera.update(0.0)
-            self._draw_scene()
+        pyglet.clock.schedule_interval(self.on_update, 1.0 / 30)
+        pyglet.clock.schedule_interval(self.on_next_frame, 1.0 / 120)
+        pyglet.clock.set_fps_limit(120)
 
     def shutdown(self, **_):
         self._motion_render.clean_up()
@@ -68,18 +66,24 @@ class MotionViewer(pyglet.window.Window):
     def on_update(self, dt):
         self._camera.update(dt)
 
+    def on_next_frame(self, dt):
+        self._frame += 1
+
     def on_draw(self):
+        pyglet.clock.tick()
+
         # Update model, view, and project matrices in all renderers
         # TODO: replace this for a camera manipulator
         self._motion_render.set_render_matrices(self._camera.view, self._camera.projection)
+        self._environment_render.set_render_matrices(self._camera.view, self._camera.projection)
 
         GL.glClear(GL.GL_COLOR_BUFFER_BIT | GL.GL_DEPTH_BUFFER_BIT)
+        self._environment_render.draw()
         self._motion_render.draw(self._frame)
-        # floor_render.draw()
-
         self._fps_display.draw()
 
-        self._frame += 1
+        if self._frame % 10 == 0:
+            print(f'{pyglet.clock.get_fps()}')
 
     def on_mouse_motion(self, x, y, dx, dy):
         self._camera.on_mouse_move(-dx, dy)
@@ -100,9 +104,10 @@ class MotionViewer(pyglet.window.Window):
 
     def _setup_renderers(self):
         skeleton = AnimatedSkeleton()
-        skeleton.load_from_file('bvh_cmu/01/01_01.bvh')
+        skeleton.load_from_file('bvh_cmu/02/02_03.bvh')
 
         self._motion_render = MotionRender(skeleton)
+        self._environment_render = EnvironmentRender()
 
 
 if __name__ == "__main__":

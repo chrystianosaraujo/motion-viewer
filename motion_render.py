@@ -53,11 +53,14 @@ class MotionRender:
         if ntype is None:
             return
 
+        #if ntype == NT.HIP:
+        #    print(f'Origin: {transform[3]}')
+
         if ntype not in MotionRender.SUPPORTED_NODE_TYPES:
             return
 
-        scale = glm.scale(glm.mat4(), glm.vec3(1.0, max(length, 1.0), 1.0))
-        model = transform * rest_rot * scale
+        scale = glm.scale(glm.mat4(), glm.vec3(4.0, min(length, 4.0), 4.0))
+        model = transform * scale
 
         # PyGLM still does not have binding for inverseTranpose.
         # glm.mat4(glm.mat3) is just a trick to remove the translation part of the normal

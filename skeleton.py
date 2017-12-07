@@ -219,10 +219,10 @@ class AnimatedSkeleton:
     # TODO: This should be cached
     def _find_type_bvh(self, name):
         return self._bvh_types.get(name)
-        #for t, names in AnimatedSkeleton.BVH_JOINT_NAMES.items():
+        # for t, names in AnimatedSkeleton.BVH_JOINT_NAMES.items():
         #    if name in names:
         #        return t
-        #return None
+        # return None
 
     def _traverse_bvh(self, frame, callback, node, base_transform):
         traverse_stack = [node]
@@ -235,7 +235,7 @@ class AnimatedSkeleton:
             # Checking if current frame is cached
             # TODO: Currently using names which are not guarantedd to be unique, should be using
             # a unique index
-            transform: None
+            transform = None
             if node.name not in self._motion_cache or frame not in self._motion_cache[node.name]:
                 rotx = self._frames[frame][node.rotx_idx] if node.rotx_idx is not None else None
                 roty = self._frames[frame][node.roty_idx] if node.roty_idx is not None else None
@@ -297,18 +297,20 @@ class AnimatedSkeleton:
                 transform = self._motion_cache[node.name][frame]
 
             if callback:
-                # TODO: Cache this
-                up = glm.vec3(0.0, 1.0, 0.0)
-                initial_dir_unnorm = glm.vec3(node.estimated_length)
-                initial_dir = glm.normalize(initial_dir_unnorm)
-                ortho = glm.cross(up, initial_dir)
-                angle = math.acos(glm.dot(up, initial_dir))
-                if math.isnan(angle):
-                    rest_rot = glm.mat4()
-                else:
-                    rest_rot = glm.rotate(glm.mat4(), angle, ortho)
+                # Need to expand in 3 dimensions
+                if not hasattr(node, 'rest_rot'):
+                    up = glm.vec3(0.0, 1.0, 0.0)
+                    initial_dir_unnorm = glm.vec3(node.estimated_length)
+                    initial_dir = glm.normalize(initial_dir_unnorm)
+                    ortho = glm.cross(up, initial_dir)
+                    angle = math.acos(glm.dot(up, initial_dir))
+                    if math.isnan(angle):
+                        node.rest_rot = glm.mat4()
+                    else:
+                        node.rest_rot = glm.rotate(glm.mat4(), angle, ortho)
+                    node.dimension = glm.length(initial_dir_unnorm)  # Make it 3d
 
-                callback(self._find_type_bvh(node.name), node.name, transform, glm.length(initial_dir_unnorm), rest_rot)
+                callback(self._find_type_bvh(node.name), node.name, transform, node.dimension, node.rest_rot)
 
             for child in node.children:
                 traverse_stack.append(child)
