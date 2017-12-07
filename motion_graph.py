@@ -114,9 +114,7 @@ class MotionGraph:
         gx, gy = np.gradient(self._similarity_mat)
         gradient_mat = gradient_magnitude(gx, gy)
 
-        np.savetxt("./mat.log", gradient_mat, fmt='%1.4f')
-
-        all_minima = []
+        all_local_minima = {}
         all_minimum_pixels = np.zeros(gradient_mat.shape)
         for i in range(gradient_mat.shape[0]):
             for j in range(gradient_mat.shape[1]):
@@ -127,31 +125,76 @@ class MotionGraph:
                   TOLERANCE = SAME_MOTION_SIMILARITY_TOL
 
                 if gradient_mat[i, j] < LOCAL_MINIMA_TOLERANCE:
-                      all_minima.append((i, j, self._similarity_mat[i, j]))
                       if self._similarity_mat[i, j] >= TOLERANCE[0] and self._similarity_mat[i,j] <= TOLERANCE[1]:
+                          all_local_minima[(i, j)] = True
                           all_minimum_pixels[i, j] = 1.0
-        #            all_minima_img_pixels[i * self.num_frames + j] = (255, 0, 0)
-        #        #else:
-        #        #    local_minima_img[i,j] = (grad_image[i, j], grad_image[i, j], grad_image[i, j])
 
-        Image.fromarray((all_minimum_pixels * 255).astype('uint8'), "L").show()
 
-        # Normalizes the distance values and convertes from distance to 
-        # similarity (basically similatiry = 1 - distance)
-        #min_value = np.nanmin(self._similarity_mat)
-        #max_value = np.nanmax(self._similarity_mat)
+        #import ipdb; ipdb.set_trace()
+        if len(all_local_minima) == 0:
+            raise RuntimeError("There is no local minima in the constructed motion graph.")
 
-        #elem_wise_operation = np.vectorize(lambda x : 1.0 if x != x else ((x - min_value) / (max_value - min_value)))
-        #self._similarity_mat = elem_wise_operation(self._similarity_mat)
-        norm = normalize_np_matrix(self._similarity_mat)
-        Image.fromarray((norm * 400).astype('uint8'), "L").save("f:\\test.png")
+        self._selected_local_minima = []
+        regions_pixels = []
+        while len(all_local_minima) > 0:
+            # Find the local minima among all pixels inside the region containing seed_pixel
+            seed_pixel = all_local_minima.popitem()[0]
+            print("Starting  Region From: " + str(seed_pixel))
+            pixels_stack = [seed_pixel]
 
-        #local_minima_img.save("f:\\local_minima.png")
-        #from_matrix_to_image(gx).save("f:\\gx.png")
-        #from_matrix_to_image(gy).save("f:\\gy.png")
-        #from_matrix_to_image(gradient_mat, True).save("f:\\mag.png")
-        #from_matrix_to_image(new_grad, True, (self._window_length, self._window_length)).save("f:\\mag2.png")
-        from_matrix_to_image(self._similarity_mat, False).save("f:\\similarity.png")
+            new_region = []
+            region_minimum_pixel = ((-1, -1), float("inf"))
+            while len(pixels_stack) > 0:
+                curr_pixel = pixels_stack.pop()
+                new_region.append(curr_pixel)
+                print("....Processing: " + str(curr_pixel))
+
+                pixel_value = self._similarity_mat[i, j]
+
+                if pixel_value < region_minimum_pixel[1]:
+                    region_minimum_pixel = (curr_pixel, pixel_value)
+
+                # Adding all neighbor local minima
+                offsets = ((-1, -1), (0, -1), (+1, -1),
+                           (-1,  0),          (+1,  0),
+                           (-1,  1), (0,  1), (+1,  1))
+
+                for offset in offsets:
+                    neighbor_pixel = (curr_pixel[0] + offset[0],
+                                      curr_pixel[1] + offset[1])
+
+                    # Ignore neighbors outside the valid region
+                    if neighbor_pixel[0] < 0 or \
+                       neighbor_pixel[1] < 0 or \
+                       neighbor_pixel[0] >= self._similarity_mat.shape[0] or \
+                       neighbor_pixel[1] >= self._similarity_mat.shape[1]:
+                        continue
+
+                    # Add pixels that lie in a local minima
+                    if all_local_minima.get(neighbor_pixel) is not None:
+                        pixels_stack.insert(0, neighbor_pixel)
+                        del all_local_minima[neighbor_pixel]
+
+            #import ipdb;ipdb.set_trace()
+            regions_pixels.append(new_region)
+            self._selected_local_minima.append(region_minimum_pixel[0])
+
+        regions_pixels_img = np.zeros(gradient_mat.shape)
+        import ipdb;ipdb.set_trace()
+        for i, region in enumerate(regions_pixels):
+            print(i)
+            for p in region:
+                regions_pixels_img[p[0], p[1]] = 1.0
+
+        only_minima_pixels_img = np.zeros(gradient_mat.shape)
+        for p in self._selected_local_minima:
+            only_minima_pixels_img[p[0], p[1]] = 1.0
+
+        Image.fromarray((all_minimum_pixels * 255).astype('uint8'), "L").save("f:\\all_minimum_pixels.png")
+        Image.fromarray((regions_pixels_img * 255).astype('uint8'), "L").save("f:\\regions_pixels.png")
+        Image.fromarray((only_minima_pixels_img * 255).astype('uint8'), "L").save("f:\\only_minima_pixels.png")
+
+        print("#REGIONS: " + str(len(regions_pixels)))
 
     @property
     def num_frames(self):
@@ -281,6 +324,7 @@ class MotionGraph:
 
     def _generate_graph(self):
         # self._local_minima = np.array((NUM_MINIMA, 2))
+        pass
 
 if __name__ == "__main__":
     from skeleton import *
