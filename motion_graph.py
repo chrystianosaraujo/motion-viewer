@@ -3,9 +3,8 @@ from PIL import Image
 import multiprocessing
 import threading
 import logging
-import scipy
 from graphviz import Digraph
-from scipy import ndimage
+import itertools
 
 import numpy as np
 
@@ -116,6 +115,7 @@ class MotionGraph:
             for j in range(num_frames):
                 self._similarity_mat[i, j] = self._difference_between_frames(i, j)
 
+
         shape = (0, len(self._motions[0]), 0, len(self._motions[0]))
         self._similarity_mat[shape[0]:shape[1], shape[2]:shape[3]] = normalize_np_matrix(self._similarity_mat[shape[0]:shape[1], shape[2]:shape[3]])
 
@@ -150,7 +150,6 @@ class MotionGraph:
                         all_local_minima[(i, j)] = True
                         all_minimum_pixels[i, j] = 1.0
 
-        # import ipdb; ipdb.set_trace()
         if len(all_local_minima) == 0:
             raise RuntimeError("There is no local minima in the constructed motion graph.")
 
@@ -159,7 +158,6 @@ class MotionGraph:
         while len(all_local_minima) > 0:
             # Find the local minima among all pixels inside the region containing seed_pixel
             seed_pixel = all_local_minima.popitem()[0]
-            print("Starting  Region From: " + str(seed_pixel))
             pixels_stack = [seed_pixel]
 
             new_region = []
@@ -167,7 +165,6 @@ class MotionGraph:
             while len(pixels_stack) > 0:
                 curr_pixel = pixels_stack.pop()
                 new_region.append(curr_pixel)
-                print("....Processing: " + str(curr_pixel))
 
                 pixel_value = self._similarity_mat[i, j]
 
@@ -195,7 +192,6 @@ class MotionGraph:
                         pixels_stack.insert(0, neighbor_pixel)
                         del all_local_minima[neighbor_pixel]
 
-            # import ipdb;ipdb.set_trace()
             regions_pixels.append(new_region)
             self._selected_local_minima.append(region_minimum_pixel[0])
 
@@ -203,7 +199,6 @@ class MotionGraph:
         import ipdb
         ipdb.set_trace()
         for i, region in enumerate(regions_pixels):
-            print(i)
             for p in region:
                 regions_pixels_img[p[0], p[1]] = 1.0
 
@@ -219,7 +214,6 @@ class MotionGraph:
 
     @property
     def num_frames(self):
-        # import ipdb; ipdb.set_trace()
         # summation_func = lambda x, y: len(x) + len(y)
         # return reduce(summation_func, self._motions, [])
         count = 0
@@ -259,16 +253,8 @@ class MotionGraph:
         np.savetxt(fn, self._similarity_mat, fmt='%1.4f')
 
     def _difference_between_frames(self, i, j):
-        # Clamp window size to shortest possible. It is important to handle poses at the beginning
-        # and at the end of the animation
-        # win_length = self._window_length
-        # if (i + win_length) > (self.num_frames - 1) or (j - win_length) < 0:
-        #       win_length = min(self.num_frames - i, j + 1)
-
         window_i = self._motion_window(i, i + self._window_length - 1)
         window_j = self._motion_window(j - (self._window_length - 1), j)
-        # window_i = self._motion_window(i, i + win_length - 1)
-        # window_j = self._motion_window(j - (win_length- 1), j)
 
         if window_i is None or window_j is None:
             return MotionGraph.INVALID_DISTANCE
@@ -280,6 +266,63 @@ class MotionGraph:
         # Computes the distance between the two windows
         diff_vec = window_i - window_j
         return np.linalg.norm(diff_vec)
+
+    def _compute_alignment_between_frames(self, frame_i, frame_j):
+        """ This function computes the transformation (Tx, Tz, Theta) that aligns two different poses.
+        It basically computes an rotation around the y-axis and a translation on the x-z plane that
+        aligns the pose j in respect to pose i so that the squared distance between the corresponding
+        positions is minimum.
+
+        Returns
+           (theta, tx, ty)
+        """
+
+        frame_i_positions = self._frames_pose_positions[frame_i]
+        frame_j_positions = self._frames_pose_positions[frame_j]
+
+        num_parts = frame_i_positions.shape[0]
+        if frame_j_positions.shape[0] != num_parts:
+            raise RuntimeError("The alignment between two frames can only be computed when both poses "\
+                               "have the same dimensions.")
+
+        # Uniform weights
+        weights = np.full(num_parts, 1.0)
+
+        # Computing alignment angle
+        # TODO: Weights must be considered in the summations below
+        sum_weights = np.sum(weights)
+
+        sum_pos_i = np.sum(frame_i_positions, axis=0)
+        sum_pos_j = np.sum(frame_j_positions, axis=0)
+
+        # Numerator   left term: SUM(w_i * (x_i * z'_i - x'_i * z_i))
+        # Denominator left term: SUM(w_i * (x_i * x'_i + z_i  * z'_i))
+        num_left = 0.0
+        den_left = 0.0
+        for w, body_pos_i, body_pos_j in zip(weights, frame_i_positions, frame_j_positions):
+            num_left += w * (body_pos_i[0] * body_pos_j[2]) - (body_pos_j[0] * body_pos_i[2])
+            den_left += w * (body_pos_i[0] * body_pos_j[0]) + (body_pos_i[2] * body_pos_j[2])
+
+        # Numerator right term: 1/SUM(w_i) * (Sum(x)*Sum(z') - Sum(x')*Sum(z))
+        num_right = 1.0/sum_weights * (sum_pos_i[0] * sum_pos_j[2] -
+                                       sum_pos_j[0] * sum_pos_i[2])
+
+        # Denominator right term: 1/SUM(w_i) * (Sum(x)*Sum(x') + Sum(z)*Sum(z'))
+        den_right = 1.0/sum_weights * (sum_pos_i[0] * sum_pos_j[0] +
+                                       sum_pos_i[2] * sum_pos_j[2])
+
+        theta = math.atan((num_left - num_right) /
+                          (den_left - den_right))
+
+
+        tx = 1.0/sum_weights * (sum_pos_i[0] - sum_pos_j[0] * math.cos(theta) -
+                                               sum_pos_j[2] * math.sin(theta))
+
+        tz = 1.0/sum_weights * (sum_pos_i[2] + sum_pos_j[0] * math.sin(theta) - \
+                                               sum_pos_j[2] * math.cos(theta))
+
+        return (theta, tx, tz)
+
 
     def _motion_window(self, begin_frame, end_frame):
         """ Returns the interval of motion frames given the first and last
@@ -311,7 +354,7 @@ class MotionGraph:
         if motion is None:
             raise RuntimeError("Invalid motion returned for the given frame index.")
 
-        return self._frames_pose[begin_frame: end_frame + 1, ]
+        return self._frames_pose_angles[begin_frame: end_frame + 1, ]
 
     def _motion_data_containing_frame(self, frame_idx):
         """ Returns the motion data related to the given global frame index."""
@@ -332,14 +375,17 @@ class MotionGraph:
 
     def _build_list_of_poses(self):
         first_motion = self._motion_data_containing_frame(0)
-        pose_dimensions = len(first_motion.get_all_joint_rotations(0)[0])
+        pose_angles_dim    = len(first_motion.get_all_joint_rotations(0)[0])
+        pose_positions_dim = first_motion.get_all_joints_position(0)[0].shape
 
-        self._frames_pose = np.empty((self.num_frames, pose_dimensions), dtype=np.float32)
+        self._frames_pose_angles    = np.empty((self.num_frames, pose_angles_dim), dtype=np.float32)
+        self._frames_pose_positions = np.empty((self.num_frames, *pose_positions_dim), dtype=np.float32)
 
         offset = 0
         for motion in self._motions:
             for i in range(len(motion)):
-                self._frames_pose[offset + i:] = motion.get_all_joint_rotations(i)[0]
+                self._frames_pose_angles   [offset + i:] = motion.get_all_joint_rotations(i)[0]
+                self._frames_pose_positions[offset + i:] = motion.get_all_joints_position(i)[0]
 
             offset += len(motion)
 
@@ -376,7 +422,6 @@ class MotionGraph:
 
         # dot.render() ??? TODO
 
-    # self._local_minima = np.array((NUM_MINIMA, 2))
     def _generate_graph(self):
         self._nodes.clear()
 

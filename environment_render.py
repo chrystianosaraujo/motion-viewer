@@ -68,7 +68,7 @@ class EnvironmentRender:
         proj_loc = self._shader_program.uniform_location('projectionMatrix')
 
         FLOOR_SIZE = 1000
-        scale = glm.scale(glm.mat4(), glm.vec3(FLOOR_SIZE, 1, FLOOR_SIZE))
+        scale = glm.scale(glm.mat4(), glm.vec3(FLOOR_SIZE, 1, FLOOR_SIZE)) * glm.translate(glm.mat4(), glm.vec3(0.0, -20.0, 0.0))
 
         GL.glUniformMatrix4fv(model_loc, 1, GL.GL_FALSE, np.ascontiguousarray(scale))
         GL.glUniformMatrix4fv(view_loc, 1, GL.GL_FALSE, np.ascontiguousarray(self._view_matrix))

@@ -10,6 +10,7 @@ import debugger as dbg
 
 # External
 import glm
+import numpy as np
 
 # Here mostly for utility purposes, nodes are not guaranteed to have a name or
 # a type associated with it. Especially useful to identify different body parts
@@ -215,6 +216,18 @@ class AnimatedSkeleton:
 
         self._traverse_func_nop(self._root[0], frame, gather_rotations)
         return (rotations, types)
+
+    def get_all_joints_position(self, frame):  # -> ([positions], [types])
+        positions = []
+        ntypes = []
+
+        def gather_positions(ntype, name, transform, dim, rest_rot):
+            trans = transform[3, :3]
+            positions.append(np.asarray(trans).ravel())
+            ntypes.append(ntype)
+
+        self.traverse(frame, gather_positions)
+        return (np.array(positions), ntypes)
 
     # TODO: This should be cached
     def _find_type_bvh(self, name):
