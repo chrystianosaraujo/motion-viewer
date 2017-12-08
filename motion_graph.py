@@ -6,6 +6,7 @@ import logging
 import scipy
 from graphviz import Digraph
 from scipy import ndimage
+import debugger as dbg
 
 import numpy as np
 
@@ -44,18 +45,55 @@ def gradient_magnitude(gx, gy):
 
 
 class MotionGraph:
-    class Edge:
-        def __init__(self, src, dst, motion, frames):
-            self._src = src
-            self._dst = dst
-            self._motion = motion
-            self._frames = frames
-
     class Node:
         def __init__(self, motion):
             self.label = ''
             self.motion = motion
             self.out = []
+            self.label = ''
+
+        def add_edge(self, dst, motion, frames):
+            edge = MotionGraph.Edge(self, dst, motion, frames)
+            self.out.append(edge)
+
+    class Edge:
+        def __init__(self, src, dst, motion, frames):
+            self.src = src
+            self.dst = dst
+            self.motion = motion
+            self.frames = frames
+
+        def split(self, frame):
+            if frame < self.frames[0] or frame > self.frames[-1]:
+                raise Exception('Out of range edge split')
+
+            split = frame - self.frames[0]
+            
+            # No split to be done
+            if split == 0:
+                return self.src
+            if split == (self.frames[-1] - self.frames[0]):
+                return self.dst
+
+            # Splitting adding 1 node and 2 edges
+            mid_node = MotionGraph.Node(self.motion)
+            edgel = MotionGraph.Edge(self.src, mid_node, self.motion, self.frames[:split])
+            edger = MotionGraph.Edge(mid_node, self.dst, self.motion, self.frames[split:])
+            mid_node.out.append(edger)
+            self.src.out.append(edgel)
+
+            # Deregistering
+            self.src.out.remove(self)
+            
+            return mid_node
+
+        @property
+        def label(self):
+            if self.motion != None:
+                return f'{self.frames[0]}..{self.frames[-1]}'
+            else:
+                return 'Transition'
+
 
     INVALID_DISTANCE = float("nan")
 
@@ -96,6 +134,7 @@ class MotionGraph:
 
         self._build_similarity_matrix()
         self._find_local_minima()
+        self._generate_graph()
 
         pr.disable()
         s = io.StringIO()
@@ -150,7 +189,6 @@ class MotionGraph:
                         all_local_minima[(i, j)] = True
                         all_minimum_pixels[i, j] = 1.0
 
-        # import ipdb; ipdb.set_trace()
         if len(all_local_minima) == 0:
             raise RuntimeError("There is no local minima in the constructed motion graph.")
 
@@ -200,8 +238,6 @@ class MotionGraph:
             self._selected_local_minima.append(region_minimum_pixel[0])
 
         regions_pixels_img = np.zeros(gradient_mat.shape)
-        import ipdb
-        ipdb.set_trace()
         for i, region in enumerate(regions_pixels):
             print(i)
             for p in region:
@@ -211,9 +247,9 @@ class MotionGraph:
         for p in self._selected_local_minima:
             only_minima_pixels_img[p[0], p[1]] = 1.0
 
-        Image.fromarray((all_minimum_pixels * 255).astype('uint8'), "L").save("f:\\all_minimum_pixels.png")
-        Image.fromarray((regions_pixels_img * 255).astype('uint8'), "L").save("f:\\regions_pixels.png")
-        Image.fromarray((only_minima_pixels_img * 255).astype('uint8'), "L").save("f:\\only_minima_pixels.png")
+        Image.fromarray((all_minimum_pixels * 255).astype('uint8'), "L").save("all_minimum_pixels.png")
+        Image.fromarray((regions_pixels_img * 255).astype('uint8'), "L").save("regions_pixels.png")
+        Image.fromarray((only_minima_pixels_img * 255).astype('uint8'), "L").save("only_minima_pixels.png")
 
         print("#REGIONS: " + str(len(regions_pixels)))
 
@@ -345,10 +381,11 @@ class MotionGraph:
 
     def _motion_frame_number(self, motion, gframe):
         for cur in self._motions:
-            if cur == self._motions:
+            if cur is motion:
                 return gframe
-            gframe -= cur.num_frames
+            gframe -= cur.frame_count
 
+    # Walks along the motion graph
     def _graph_find_frame(self, motion, frame):
         for node in self._nodes:
             if node.motion == motion:
@@ -358,22 +395,27 @@ class MotionGraph:
                         if out_edge.motion == motion:
                             if frame < out_edge.frames[-1]:
                                 return out_edge
-                            cur = out_edge
+                            cur = out_edge.dst
                             break
 
     def _graph_export_graphviz(self):
         dot = Digraph(comment='Motion Graph')
 
+        visited = {}
+
         # We like recursive..
         def _export_node_rec(node):
-            dot.node(id(node), node.label)
-            for out_edge in node.out:
-                dot.edge([id(out_edge.src), id(out_edge.dst)])
-                _export_node_rec(out_edge.dst)
+            if str(id(node)) not in visited:
+                dot.node(str(id(node)), node.label)
+                visited[str(id(node))] = True
+                for out_edge in node.out:
+                    dot.edge(str(id(out_edge.src)), str(id(out_edge.dst)), label=out_edge.label)
+                    _export_node_rec(out_edge.dst)
 
         for node in self._nodes:
             _export_node_rec(node)
 
+        dot.render('out.gv', view=True)
         # dot.render() ??? TODO
 
     # self._local_minima = np.array((NUM_MINIMA, 2))
@@ -381,15 +423,17 @@ class MotionGraph:
         self._nodes.clear()
 
         # Creating one transition for each input motion
-        for motion in self._motions:
-            motion_beg = Node(motion)
-            motion_end = Node(motion)
-            transition = Edge(motion_beg, motion_end, motion, np.arange(motion.num_frames))
+        for ii, motion in enumerate(self._motions):
+            motion_beg = MotionGraph.Node(motion)
+            motion_beg.label = f'Motion {ii} Begin'
+            motion_end = MotionGraph.Node(motion)
+            motion_end.label = f'Motion {ii} End'
+            transition = MotionGraph.Edge(motion_beg, motion_end, motion, np.arange(motion.frame_count))
             motion_beg.out.append(transition)
             self._nodes.append(motion_beg)
 
         # Insert transitions between motions for each local minima
-        for minima in self._local_minima:
+        for minima in self._selected_local_minima:
             gsrc, gdst = minima
             src_motion = self._motion_data_containing_frame(gsrc)
             dst_motion = self._motion_data_containing_frame(gdst)
@@ -403,29 +447,25 @@ class MotionGraph:
 
             src_edge = self._graph_find_frame(src_motion, src)
             dst_edge = self._graph_find_frame(dst_motion, dst)
+            print(f'Adding transition for minima {minima}')
 
-            # New split nodes
-            new_src_node = Node(src_motion)
-            new_dst_node = Node(dst_motion)
+            if src_edge == dst_edge:
+                if src < dst: # Does this make sense ?
+                    new_node1 = src_edge.split(src)
+                    new_node2 = new_node1.out[0].split(dst)
+                    new_node1.add_edge(new_node2, src_motion, [0])
+                else:
+                    new_node1 = src_edge.split(dst)
+                    new_node2 = new_node1.out[0].split(src)
+                    new_node2.add_edge(new_node1, src_motion, [0])
+            else:
+                mid_src = src_edge.split(src)
+                mid_dst = dst_edge.split(dst)
+                mid_src.add_edge(mid_dst, None, [0])
 
-            transition = Edge(new_src_node, new_dst_node, None, [0])  # TODO Syntesize new frames!!
-
-            # Creating and inserting new transition
-            src_edge.src.out.remove(src_edge)
-            # dst_edge.dst.in.remove(src_edge)
-
-            # Creating 4 new edges
-            # B-------->E ~ B--(new_src_edge0)-->(new_src_node)--(new_src_edge1)-->E
-            new_src_edge0 = Edge(src_edge.src, new_src_node)
-            new_src_edge1 = Edge(new_src_node, src_edge.dst)
-            new_dst_edge0 = Edge(dst_edge.src, new_dst_node)
-            new_dst_edge1 = Edge(new_dst_node, dst_edge.dst)
-
-            # Adding edges to respective nodes
-            src_edge.src.out.append(new_src_edge0)
-            dst_edge.src.out.append(new_dst_edge0)
-            new_src_node.out.append(new_src_edge1)
-            new_dst_node.out.append(new_dst_edge1)
+            print(f'Inserted transition {src} -> {dst}')
+            if minima is self._selected_local_minima[1]:
+                break
 
         # Prune graph
 

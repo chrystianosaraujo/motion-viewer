@@ -60,7 +60,7 @@ class MotionRender:
             return
 
         scale = glm.scale(glm.mat4(), glm.vec3(4.0, max(length, 1.0), 4.0))
-        model = transform * scale
+        model = transform * rest_rot * scale
 
         # PyGLM still does not have binding for inverseTranpose.
         # glm.mat4(glm.mat3) is just a trick to remove the translation part of the normal
