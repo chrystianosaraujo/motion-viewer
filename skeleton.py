@@ -12,61 +12,19 @@ import debugger as dbg
 import glm
 import numpy as np
 
-# Here mostly for utility purposes, nodes are not guaranteed to have a name or
-# a type associated with it. Especially useful to identify different body parts
-# for rendering
-
 
 class NodeType(enum.Enum):
-    HIP = 0
-    ABDOMEN = 1
-    CHEST = 2
-    NECK = 3
-    HEAD = 4
-    LEFT_EYE = 5
-    RIGHT_EYE = 6
-    RIGHT_COLLAR = 7
-    RIGHT_SHOULDER = 8
-    RIGHT_FOREARM = 9
-    RIGHT_HAND = 10
-    RIGHT_FINGER_THUMB1 = 11
-    RIGHT_FINGER_THUMB2 = 12
-    RIGHT_FINGER_INDEX1 = 13
-    RIGHT_FINGER_INDEX2 = 14
-    RIGHT_FINGER_MID1 = 15
-    RIGHT_FINGER_MID2 = 16
-    RIGHT_FINGER_RING1 = 17
-    RIGHT_FINGER_RING2 = 18
-    RIGHT_FINGER_PINKY1 = 19
-    RIGHT_FINGER_PINKY2 = 20
-
-    LEFT_COLLAR = 21
-    LEFT_SHOULDER = 22
-    LEFT_FOREARM = 23
-    LEFT_HAND = 24
-    LEFT_FINGER_THUMB1 = 25
-    LEFT_FINGER_THUMB2 = 26
-    LEFT_FINGER_INDEX1 = 27
-    LEFT_FINGER_INDEX2 = 28
-    LEFT_FINGER_MID1 = 29
-    LEFT_FINGER_MID2 = 30
-    LEFT_FINGER_RING1 = 31
-    LEFT_FINGER_RING2 = 32
-    LEFT_FINGER_PINKY1 = 33
-    LEFT_FINGER_PINKY2 = 34
-
-    RIGHT_BUTTOCK = 35
-    RIGHT_THIGH = 36
-    RIGHT_SHIN = 37
-    RIGHT_FOOT = 38
-
-    LEFT_BUTTOCK = 39
-    LEFT_THIGH = 40
-    LEFT_SHIN = 41
-    LEFT_FOOT = 42
-
-    LOWER_BACK = 43
-    SPINE = 44
+    HEAD = 0
+    EYE = 1
+    NECK = 2
+    TORSO = 3
+    UPPER_LEG = 4
+    LOWER_LEG = 5
+    FOOT = 6
+    UPPER_ARM = 7
+    LOWER_ARM = 8
+    FINGER = 9
+    HAND = 10
 
 
 class UnsupportedError(Exception):
@@ -77,59 +35,20 @@ class FormatError(Exception):
     pass
 
 # Hierarchical collection of joints with associated motion data
-
-
-class AnimatedSkeleton:
-    # Optimized for readability :)
+class AnimatedSkeleton: 
+    # Mapping type -> names
+    # For readability
     BVH_JOINT_NAMES = {
-        NodeType.HIP: ['hip', 'Hips', 'LHipJoint', 'RHipJoint'],
-        NodeType.ABDOMEN: ['abdomen'],
-        NodeType.CHEST: ['chest'],
-        NodeType.NECK: ['neck', 'Neck', 'Neck1'],
-        NodeType.HEAD: ['head', 'Head'],
-        NodeType.LEFT_EYE: ['leftEye'],
-        NodeType.RIGHT_EYE: ['rightEye'],
-        NodeType.RIGHT_COLLAR: ['rCollar'],
-        NodeType.RIGHT_SHOULDER: ['rShldr', 'RightShoulder'],
-        NodeType.RIGHT_FOREARM: ['rForeArm', 'RightArm', 'RightForeArm'],
-        NodeType.RIGHT_HAND: ['rHand', 'RightHand', 'RightForeArm'],
-        NodeType.RIGHT_FINGER_THUMB1: ['rThumb1'],
-        NodeType.RIGHT_FINGER_THUMB2: ['rThumb2'],
-        NodeType.RIGHT_FINGER_INDEX1: ['rIndex1'],
-        NodeType.RIGHT_FINGER_INDEX2: ['rIndex2'],
-        NodeType.RIGHT_FINGER_MID1: ['rMid1'],
-        NodeType.RIGHT_FINGER_MID2: ['rMid2'],
-        NodeType.RIGHT_FINGER_RING1: ['rRing1'],
-        NodeType.RIGHT_FINGER_RING2: ['rRing2'],
-        NodeType.RIGHT_FINGER_PINKY1: ['rPinky1'],
-        NodeType.RIGHT_FINGER_PINKY2: ['rPinky2'],
-        NodeType.LEFT_COLLAR: ['lCollar'],
-        NodeType.LEFT_SHOULDER: ['lShldr'],
-        NodeType.LEFT_FOREARM: ['lForeArm'],
-        NodeType.LEFT_HAND: ['lHand'],
-        NodeType.LEFT_FINGER_THUMB1: ['lThumb1'],
-        NodeType.LEFT_FINGER_THUMB2: ['lThumb2'],
-        NodeType.LEFT_FINGER_INDEX1: ['lIndex1'],
-        NodeType.LEFT_FINGER_INDEX2: ['lIndex2'],
-        NodeType.LEFT_FINGER_MID1: ['lMid1'],
-        NodeType.LEFT_FINGER_MID2: ['lMid2'],
-        NodeType.LEFT_FINGER_RING1: ['lRing1'],
-        NodeType.LEFT_FINGER_RING2: ['lRing2'],
-        NodeType.LEFT_FINGER_PINKY1: ['lPinky1'],
-        NodeType.LEFT_FINGER_PINKY2: ['lPinky2'],
-
-        NodeType.RIGHT_BUTTOCK: ['rButtock'],
-        NodeType.RIGHT_THIGH: ['rThigh', 'RightUpLeg'],
-        NodeType.RIGHT_SHIN: ['rShin', 'RightLeg'],
-        NodeType.RIGHT_FOOT: ['rFoot', 'RightFoot'],
-
-        NodeType.LEFT_BUTTOCK: ['lButtock'],
-        NodeType.LEFT_THIGH: ['lThigh', 'LeftUpLeg'],
-        NodeType.LEFT_SHIN: ['lShin', 'LeftLeg'],
-        NodeType.LEFT_FOOT: ['lFoot', 'LeftFoot'],
-
-        NodeType.LOWER_BACK: ['LowerBack'],
-        NodeType.SPINE: ['Spine', 'Spine1'],
+        NodeType.HEAD: ['head'],
+        NodeType.NECK: ['neck'],
+        NodeType.EYE: ['eye'],
+        NodeType.TORSO: ['hip', 'chest', 'abdomen', 'spine', 'back', 'collar'],
+        NodeType.UPPER_LEG: ['upleg', 'thigh'],
+        NodeType.LOWER_LEG: ['leg', 'shin'],
+        NodeType.FOOT: ['foot', 'toe'],
+        NodeType.UPPER_ARM: ['shoulder', 'shldr'],
+        NodeType.LOWER_ARM: ['arm'],
+        NodeType.FINGER: ['finger', 'thumb', 'index', 'mid', 'ring', 'pinky']
     }
 
     def __init__(self):
@@ -231,11 +150,12 @@ class AnimatedSkeleton:
 
     # TODO: This should be cached
     def _find_type_bvh(self, name):
-        return self._bvh_types.get(name)
-        # for t, names in AnimatedSkeleton.BVH_JOINT_NAMES.items():
-        #    if name in names:
-        #        return t
-        # return None
+        for t, names in AnimatedSkeleton.BVH_JOINT_NAMES.items():
+            for cname in names:
+                if cname in name.lower():
+                    return t                    
+        print(f'Failed to find type for {name}')
+        return None
 
     def _traverse_bvh(self, frame, callback, node, base_transform):
         traverse_stack = [node]
@@ -292,24 +212,29 @@ class AnimatedSkeleton:
                                   [0.0, 0.0, 0.0, 1.0])
 
                 else:
-                    Rz = copy.copy(self._identity)
+                    Rz = copy.copy(self._identity)                    
 
                 # Right to left multiplication
                 # R: Rz * Rx * Ry
-                R = Rz * Rx * Ry
+
+                # THe multiplication order depends on how they are specified in the file
+                R = node.compose_rotations_ordered(Rx, Ry, Rz)
                 T = glm.mat4([[1.0, 0.0, 0.0, 0.0],
                               [0.0, 1.0, 0.0, 0.0],
                               [0.0, 0.0, 1.0, 0.0],
                               [offx + node.offset[0], offy + node.offset[1], offz + node.offset[2], 1.0]])
 
-                transform = parent_transform * R * T
+                # with open('out.txt', 'a') as ff:
+                #     ff.write(f'{node.name}\n {Rx}\n {Ry}\n {Rz}\n {T}\n')
+
+                transform = parent_transform * T * R
                 if node.name not in self._motion_cache:
                     self._motion_cache[node.name] = {}
                 self._motion_cache[node.name][frame] = transform
             else:
                 transform = self._motion_cache[node.name][frame]
 
-            if callback:
+            if len(node.children) <= 1 and callback:
                 # Need to expand in 3 dimensions
                 if not hasattr(node, 'rest_rot'):
                     up = glm.vec3(0.0, 1.0, 0.0)
@@ -326,8 +251,8 @@ class AnimatedSkeleton:
                 callback(self._find_type_bvh(node.name), node.name, transform, node.dimension, node.rest_rot)
 
             for child in node.children:
-                traverse_stack.append(child)
-                transform_stack.append(transform)
+                traverse_stack.insert(0, child)
+                transform_stack.insert(0, transform)
 
     def _traverse_bvh_nop(self, root, frame, callback):
         traverse_stack = [root]

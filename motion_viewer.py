@@ -82,8 +82,8 @@ class MotionViewer(pyglet.window.Window):
         self._motion_render.draw(self._frame)
         self._fps_display.draw()
 
-        if self._frame % 10 == 0:
-            print(f'{pyglet.clock.get_fps()}')
+        # if self._frame % 10 == 0:
+        #     print(f'{pyglet.clock.get_fps()}')
 
     def on_mouse_motion(self, x, y, dx, dy):
         self._camera.on_mouse_move(-dx, dy)
@@ -96,6 +96,11 @@ class MotionViewer(pyglet.window.Window):
             pyglet.app.exit()
         if symbol == pyglet.window.key.R:
             self._frame = 0
+        if symbol == pyglet.window.key.N:
+            self._frame += 1
+        if symbol == pyglet.window.key.M:
+            self._frame -= 1
+
         self._camera.on_key_up(symbol)
 
     def _setup_gl(self):
@@ -104,7 +109,7 @@ class MotionViewer(pyglet.window.Window):
 
     def _setup_renderers(self):
         skeleton = AnimatedSkeleton()
-        skeleton.load_from_file('data/02/02_03.bvh')
+        skeleton.load_from_file('data/05/05_01.bvh')
 
         self._motion_render = MotionRender(skeleton)
         self._environment_render = EnvironmentRender()

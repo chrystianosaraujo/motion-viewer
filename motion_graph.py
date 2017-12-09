@@ -40,7 +40,6 @@ def gradient_magnitude(gx, gy):
     for i in range(gx.shape[0]):
         for j in range(gx.shape[1]):
             out[i, j] = math.sqrt(math.pow(gx[i, j], 2) + math.pow(gy[i, j], 2))
-
     return out
 
 
@@ -126,22 +125,22 @@ class MotionGraph:
         Notes:
             TODO: Handle more than one motion:
         """
-        import cProfile
-        import pstats
-        import io
-        pr = cProfile.Profile()
-        pr.enable()
+        # import cProfile
+        # import pstats
+        # import io
+        # pr = cProfile.Profile()
+        # pr.enable()
 
         self._build_similarity_matrix()
         self._find_local_minima()
         self._generate_graph()
 
-        pr.disable()
-        s = io.StringIO()
-        sortby = 'time'
-        ps = pstats.Stats(pr, stream=s).sort_stats(sortby)
-        ps.print_stats()
-        print(s.getvalue())
+        # pr.disable()
+        # s = io.StringIO()
+        # sortby = 'time'
+        # ps = pstats.Stats(pr, stream=s).sort_stats(sortby)
+        # ps.print_stats()
+        # print(s.getvalue())
 
     def _build_similarity_matrix(self):
         self._build_list_of_poses()
@@ -441,7 +440,7 @@ class MotionGraph:
                 while True:
                     for out_edge in cur.out:
                         if out_edge.motion == motion:
-                            if frame < out_edge.frames[-1]:
+                            if frame <= out_edge.frames[-1]:
                                 return out_edge
                             cur = out_edge.dst
                             break
@@ -489,30 +488,28 @@ class MotionGraph:
             src = self._motion_frame_number(src_motion, gsrc)
             dst = self._motion_frame_number(dst_motion, gdst)
 
+            print(f'Inserted transition {self._motions.index(src_motion)}:{src} -> {self._motions.index(dst_motion)}:{dst}')
+
+
             if src_motion is None:
                 raise RuntimeError("Invalid motion returned for the given frame index.")
 
             src_edge = self._graph_find_frame(src_motion, src)
             dst_edge = self._graph_find_frame(dst_motion, dst)
-            print(f'Adding transition for minima {minima}')
 
             if src_edge == dst_edge:
                 if src < dst: # Does this make sense ?
                     new_node1 = src_edge.split(src)
                     new_node2 = new_node1.out[0].split(dst)
-                    new_node1.add_edge(new_node2, src_motion, [0])
+                    new_node1.add_edge(new_node2, None, [0])
                 else:
                     new_node1 = src_edge.split(dst)
                     new_node2 = new_node1.out[0].split(src)
-                    new_node2.add_edge(new_node1, src_motion, [0])
+                    new_node2.add_edge(new_node1, None, [0])
             else:
                 mid_src = src_edge.split(src)
                 mid_dst = dst_edge.split(dst)
                 mid_src.add_edge(mid_dst, None, [0])
-
-            print(f'Inserted transition {src} -> {dst}')
-            if minima is self._selected_local_minima[1]:
-                break
 
         # Prune graph
 

@@ -14,12 +14,19 @@ import debugger as dbg
 
 
 class MotionRender:
-    SUPPORTED_NODE_TYPES = [NT.HIP, NT.ABDOMEN, NT.CHEST, NT.NECK, NT.HEAD,
-                            NT.RIGHT_COLLAR, NT.RIGHT_SHOULDER, NT.RIGHT_FOREARM, NT.RIGHT_HAND,
-                            NT.LEFT_COLLAR, NT.LEFT_SHOULDER, NT.LEFT_FOREARM, NT.LEFT_HAND,
-                            NT.RIGHT_BUTTOCK, NT.RIGHT_THIGH, NT.RIGHT_SHIN, NT.RIGHT_FOOT,
-                            NT.LEFT_BUTTOCK, NT.LEFT_THIGH, NT.LEFT_SHIN, NT.LEFT_FOOT,
-                            NT.LOWER_BACK, NT.SPINE]
+    COLORS = {
+        NT.HEAD : glm.vec4(213/255, 0.0, 249.0/255, 1.0),
+        NT.EYE : glm.vec4(1.0, 1.0, 1.0, 1.0),
+        NT.NECK : glm.vec4(213/255, 0.0, 249.0/255, 1.0),
+        NT.TORSO : glm.vec4(1.0, 193.0 / 255, 7.0 / 255, 1.0),
+        NT.UPPER_LEG : glm.vec4(63.0/255, 81.0/255, 181.0/255, 1.0),
+        NT.LOWER_LEG : glm.vec4(63.0/255, 81.0/255, 181.0/255, 1.0),
+        NT.FOOT : glm.vec4(26.0/255, 35.0/255, 126.0/255, 1.0),
+        NT.UPPER_ARM : glm.vec4(63.0/255, 81.0/255, 181.0/255, 1.0),
+        NT.LOWER_ARM : glm.vec4(63.0/255, 81.0/255, 181.0/255, 1.0),
+        NT.FINGER :glm.vec4(26.0/255, 35.0/255, 126.0/255, 1.0),
+        NT.HAND : glm.vec4(26.0/255, 35.0/255, 126.0/255, 1.0)
+    }
 
     class VertexAttributes(Enum):
         """ Name of each used vertex attribute"""
@@ -36,11 +43,11 @@ class MotionRender:
         self._skeleton = skeleton
         self._motion_cache = {}
 
-        # Precompute frames
+        # Forcing the skeleton to compute and cache frames
+        # TODO The caching should probably be done here)
         for i in range(self._skeleton.frame_count):
             beg = time.time()
             self._skeleton.traverse(i, None)
-            print(f'{i} -> {time.time() - beg}')
 
         self._uniforms = {}
 
@@ -49,17 +56,7 @@ class MotionRender:
         self._proj_matrix = project
 
     def _on_draw_part(self, ntype, name, transform, length, rest_rot):
-        # TODO: Add either warning or render with noticeably different color
-        if ntype is None:
-            return
-
-        # if ntype == NT.HIP:
-        #    print(f'Origin: {transform[3]}')
-
-        if ntype not in MotionRender.SUPPORTED_NODE_TYPES:
-            return
-
-        scale = glm.scale(glm.mat4(), glm.vec3(1.0, max(length, 1.0), 1.0))
+        scale = glm.scale(glm.mat4(), glm.vec3(0.8, max(length, 0.8), 0.8))
         model = transform * rest_rot * scale
 
         # PyGLM still does not have binding for inverseTranpose.
@@ -71,11 +68,17 @@ class MotionRender:
 
         GL.glUniformMatrix4fv(self._uniforms['model_mat_loc'], 1, GL.GL_FALSE, np.ascontiguousarray(model))
         GL.glUniformMatrix4fv(self._uniforms['normal_mat_loc'], 1, GL.GL_FALSE, np.ascontiguousarray(glm.mat4().value))
+        
+        if ntype:
+            GL.glUniform4fv(self._uniforms['ambient_color_loc'], 1, np.ascontiguousarray(MotionRender.COLORS[ntype]))
 
         GL.glBindVertexArray(self._vao)
 
         num_vertices = int(self._vertices.size / 3)
         GL.glDrawArrays(GL.GL_TRIANGLES, 0, num_vertices)
+
+        if ntype:
+            GL.glUniform4fv(self._uniforms['ambient_color_loc'], 1, np.ascontiguousarray(self._ambient_color))
 
     def draw(self, frame):
         frame = frame % self._skeleton.frame_count
