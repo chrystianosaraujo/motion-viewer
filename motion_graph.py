@@ -1,19 +1,18 @@
-from functools import reduce
+from math_utils import quaternion_from_euler
+
 from PIL import Image
+from graphviz import Digraph
+from pyquaternion import Quaternion
+import numpy as np
+
+from functools import reduce
 import multiprocessing
 import threading
 import logging
-from graphviz import Digraph
-from scipy import ndimage
-import debugger as dbg
-import itertools
-
-import numpy as np
 
 LOCAL_MINIMA_TOLERANCE = 1E-2
 SAME_MOTION_SIMILARITY_TOL = (0.1, 0.3)
 DIFF_MOTION_SIMILARITY_TOL = (0.0, 0.3)
-
 
 def normalize_np_matrix(mat):
     min_value = np.nanmin(mat)
@@ -40,59 +39,22 @@ def gradient_magnitude(gx, gy):
     for i in range(gx.shape[0]):
         for j in range(gx.shape[1]):
             out[i, j] = math.sqrt(math.pow(gx[i, j], 2) + math.pow(gy[i, j], 2))
+
     return out
 
-
 class MotionGraph:
+    class Edge:
+        def __init__(self, src, dst, motion, frames):
+            self._src = src
+            self._dst = dst
+            self._motion = motion
+            self._frames = frames
+
     class Node:
         def __init__(self, motion):
             self.label = ''
             self.motion = motion
             self.out = []
-            self.label = ''
-
-        def add_edge(self, dst, motion, frames):
-            edge = MotionGraph.Edge(self, dst, motion, frames)
-            self.out.append(edge)
-
-    class Edge:
-        def __init__(self, src, dst, motion, frames):
-            self.src = src
-            self.dst = dst
-            self.motion = motion
-            self.frames = frames
-
-        def split(self, frame):
-            if frame < self.frames[0] or frame > self.frames[-1]:
-                raise Exception('Out of range edge split')
-
-            split = frame - self.frames[0]
-            
-            # No split to be done
-            if split == 0:
-                return self.src
-            if split == (self.frames[-1] - self.frames[0]):
-                return self.dst
-
-            # Splitting adding 1 node and 2 edges
-            mid_node = MotionGraph.Node(self.motion)
-            edgel = MotionGraph.Edge(self.src, mid_node, self.motion, self.frames[:split])
-            edger = MotionGraph.Edge(mid_node, self.dst, self.motion, self.frames[split:])
-            mid_node.out.append(edger)
-            self.src.out.append(edgel)
-
-            # Deregistering
-            self.src.out.remove(self)
-            
-            return mid_node
-
-        @property
-        def label(self):
-            if self.motion != None:
-                return f'{self.frames[0]}..{self.frames[-1]}'
-            else:
-                return 'Transition'
-
 
     INVALID_DISTANCE = float("nan")
 
@@ -125,22 +87,21 @@ class MotionGraph:
         Notes:
             TODO: Handle more than one motion:
         """
-        # import cProfile
-        # import pstats
-        # import io
-        # pr = cProfile.Profile()
-        # pr.enable()
+        import cProfile
+        import pstats
+        import io
+        pr = cProfile.Profile()
+        pr.enable()
 
         self._build_similarity_matrix()
         self._find_local_minima()
-        self._generate_graph()
 
-        # pr.disable()
-        # s = io.StringIO()
-        # sortby = 'time'
-        # ps = pstats.Stats(pr, stream=s).sort_stats(sortby)
-        # ps.print_stats()
-        # print(s.getvalue())
+        pr.disable()
+        s = io.StringIO()
+        sortby = 'time'
+        ps = pstats.Stats(pr, stream=s).sort_stats(sortby)
+        ps.print_stats()
+        print(s.getvalue())
 
     def _build_similarity_matrix(self):
         self._build_list_of_poses()
@@ -212,8 +173,8 @@ class MotionGraph:
 
                 # Adding all neighbor local minima
                 offsets = ((-1, -1), (0, -1), (+1, -1),
-                           (-1, 0), (+1, 0),
-                           (-1, 1), (0, 1), (+1, 1))
+                           (-1,  0),          (+1,  0),
+                           (-1,  1), (0,  1), (+1,  1))
 
                 for offset in offsets:
                     neighbor_pixel = (curr_pixel[0] + offset[0],
@@ -243,9 +204,13 @@ class MotionGraph:
         for p in self._selected_local_minima:
             only_minima_pixels_img[p[0], p[1]] = 1.0
 
-        Image.fromarray((all_minimum_pixels * 255).astype('uint8'), "L").save("all_minimum_pixels.png")
-        Image.fromarray((regions_pixels_img * 255).astype('uint8'), "L").save("regions_pixels.png")
-        Image.fromarray((only_minima_pixels_img * 255).astype('uint8'), "L").save("only_minima_pixels.png")
+        Image.fromarray((all_minimum_pixels * 255).astype('uint8'), "L").save("f:\\all_minimum_pixels.png")
+        Image.fromarray((regions_pixels_img * 255).astype('uint8'), "L").save("f:\\regions_pixels.png")
+        Image.fromarray((only_minima_pixels_img * 255).astype('uint8'), "L").save("f:\\only_minima_pixels.png")
+
+        t = self._selected_local_minima[0]
+        self._blend_windows((t[0], t[0] + self._window_length - 1), (t[1] - (self._window_length - 1), t[1]))
+
 
         print("#REGIONS: " + str(len(regions_pixels)))
 
@@ -351,7 +316,6 @@ class MotionGraph:
         theta = math.atan((num_left - num_right) /
                           (den_left - den_right))
 
-
         tx = 1.0/sum_weights * (sum_pos_i[0] - sum_pos_j[0] * math.cos(theta) -
                                                sum_pos_j[2] * math.sin(theta))
 
@@ -360,6 +324,61 @@ class MotionGraph:
 
         return (theta, tx, tz)
 
+    def _blend_windows(self, window_i, window_j):
+        """ This function must be used to create a transition between
+        two different motion clips.
+
+        Args:
+            window_i, window_j: each window consist in a tuple with two values,
+            which define the first and last interval frames.
+ 
+        Returns:
+            Returns a new window of frames that creates the transition from the
+            window_i to window_j.
+        """
+        num_frames = window_i[1] - window_i[0] + 1
+        angle, tx, tz = self._compute_alignment_between_frames(window_i[0], window_j[0])
+
+        align_trans = np.array([tx, 0.0, tz])
+        align_rot   = Quaternion(axis=[0.0, 1.0, 0.0], radians=angle)
+
+        frames_i = self._get_motion_window_as_hierarchical_poses(*window_i)
+        frames_j = self._get_motion_window_as_hierarchical_poses(*window_j)
+        blended_frames = copy.deepcopy(frames_i)
+
+        for p, poses in enumerate(zip(frames_i, frames_j, blended_frames)):
+            # -1 is used just to enforce a_p factor between[0, 1]
+            a_p = 2 * math.pow((p + 1 - 1) / (num_frames - 1), 3) -\
+                  3 * math.pow((p + 1 - 1) / (num_frames - 1), 2) + 1
+
+            pose_i, pose_j, pose_b = poses
+
+            # Align pose_j in respect to pose_i
+            pose_j["position"] = np.add(pose_j["position"], np.array([tx, 0.0, tz]));
+            pose_j["offset"]   = np.array([0.0, 0.0, 0.0])
+
+            root_j_quat  = quaternion_from_euler(*pose_j["angles"])
+            aligned_root = root_j_quat * align_rot
+            pose_j["angles"] = aligned_root.yaw_pitch_roll
+
+            # Linear interpolates the root position
+            pose_b["position"] = np.add(a_p * pose_i["position"], (1 - a_p) * pose_j["position"])
+
+            # Spherical interpolates all joints angles
+            stack_nodes = [(pose_i, pose_j, pose_b)]
+            while stack_nodes:
+                poses = stack_nodes.pop()
+                pose_i, pose_j, pose_b = poses
+
+                quat_i = quaternion_from_euler(*pose_i["angles"])
+                quat_j = quaternion_from_euler(*pose_j["angles"])
+                blended_joint = Quaternion.slerp(quat_i, quat_j, 1 - a_p)
+                pose_b["angles"] = blended_joint.yaw_pitch_roll
+
+                for nodes in zip(pose_i["children"], pose_j["children"], pose_b["children"]):
+                    stack_nodes.insert(0, nodes)
+
+        return blended_frames
 
     def _motion_window(self, begin_frame, end_frame):
         """ Returns the interval of motion frames given the first and last
@@ -392,6 +411,30 @@ class MotionGraph:
             raise RuntimeError("Invalid motion returned for the given frame index.")
 
         return self._frames_pose_angles[begin_frame: end_frame + 1, ]
+
+    # TODO: Edoardo
+    def _get_motion_window_as_hierarchical_poses(self, begin_frame, end_frame):
+        # Check if the provided indices are valid
+        if begin_frame < 0 or end_frame >= self.num_frames:
+            return None
+
+        # Check if the whole window lies in the same motion clip
+        motion = self._motion_data_containing_frame(begin_frame)
+        if motion != self._motion_data_containing_frame(end_frame):
+            return None
+
+        if motion is None:
+            raise RuntimeError("Invalid motion returned for the given frame index.")
+
+        return [{
+            "type"     : "root",
+            "offset"   : np.array([0.0, 0.0, 0.0]),
+            "position" : np.array([1000.0, 0.0, 0.0]),
+            "angles"   : np.array([0.0, 0.0, 0.0]),
+            "children" : [],
+        }]
+
+        #return [motion.get_hierarchical_pose(i) for i in range(begin_frame, end_frame + 1)]
 
     def _motion_data_containing_frame(self, frame_idx):
         """ Returns the motion data related to the given global frame index."""
@@ -428,11 +471,10 @@ class MotionGraph:
 
     def _motion_frame_number(self, motion, gframe):
         for cur in self._motions:
-            if cur is motion:
+            if cur == self._motions:
                 return gframe
-            gframe -= cur.frame_count
+            gframe -= cur.num_frames
 
-    # Walks along the motion graph
     def _graph_find_frame(self, motion, frame):
         for node in self._nodes:
             if node.motion == motion:
@@ -440,47 +482,41 @@ class MotionGraph:
                 while True:
                     for out_edge in cur.out:
                         if out_edge.motion == motion:
-                            if frame <= out_edge.frames[-1]:
+                            if frame < out_edge.frames[-1]:
                                 return out_edge
-                            cur = out_edge.dst
+                            cur = out_edge
                             break
 
     def _graph_export_graphviz(self):
         dot = Digraph(comment='Motion Graph')
 
-        visited = {}
-
         # We like recursive..
         def _export_node_rec(node):
-            if str(id(node)) not in visited:
-                dot.node(str(id(node)), node.label)
-                visited[str(id(node))] = True
-                for out_edge in node.out:
-                    dot.edge(str(id(out_edge.src)), str(id(out_edge.dst)), label=out_edge.label)
-                    _export_node_rec(out_edge.dst)
+            dot.node(id(node), node.label)
+            for out_edge in node.out:
+                dot.edge([id(out_edge.src), id(out_edge.dst)])
+                _export_node_rec(out_edge.dst)
 
         for node in self._nodes:
             _export_node_rec(node)
 
-        dot.render('out.gv', view=True)
         # dot.render() ??? TODO
 
     def _generate_graph(self):
         self._nodes.clear()
 
         # Creating one transition for each input motion
-        for ii, motion in enumerate(self._motions):
-            motion_beg = MotionGraph.Node(motion)
-            motion_beg.label = f'Motion {ii} Begin'
-            motion_end = MotionGraph.Node(motion)
-            motion_end.label = f'Motion {ii} End'
-            transition = MotionGraph.Edge(motion_beg, motion_end, motion, np.arange(motion.frame_count))
+        for motion in self._motions:
+            motion_beg = Node(motion)
+            motion_end = Node(motion)
+            transition = Edge(motion_beg, motion_end, motion, np.arange(motion.num_frames))
             motion_beg.out.append(transition)
             self._nodes.append(motion_beg)
 
         # Insert transitions between motions for each local minima
-        for minima in self._selected_local_minima:
+        for minima in self._local_minima:
             gsrc, gdst = minima
+
             src_motion = self._motion_data_containing_frame(gsrc)
             dst_motion = self._motion_data_containing_frame(gdst)
 
@@ -488,28 +524,34 @@ class MotionGraph:
             src = self._motion_frame_number(src_motion, gsrc)
             dst = self._motion_frame_number(dst_motion, gdst)
 
-            print(f'Inserted transition {self._motions.index(src_motion)}:{src} -> {self._motions.index(dst_motion)}:{dst}')
-
-
             if src_motion is None:
                 raise RuntimeError("Invalid motion returned for the given frame index.")
 
             src_edge = self._graph_find_frame(src_motion, src)
             dst_edge = self._graph_find_frame(dst_motion, dst)
 
-            if src_edge == dst_edge:
-                if src < dst: # Does this make sense ?
-                    new_node1 = src_edge.split(src)
-                    new_node2 = new_node1.out[0].split(dst)
-                    new_node1.add_edge(new_node2, None, [0])
-                else:
-                    new_node1 = src_edge.split(dst)
-                    new_node2 = new_node1.out[0].split(src)
-                    new_node2.add_edge(new_node1, None, [0])
-            else:
-                mid_src = src_edge.split(src)
-                mid_dst = dst_edge.split(dst)
-                mid_src.add_edge(mid_dst, None, [0])
+            # New split nodes
+            new_src_node = Node(src_motion)
+            new_dst_node = Node(dst_motion)
+
+            transition = Edge(new_src_node, new_dst_node, None, [0])  # TODO Syntesize new frames!!
+
+            # Creating and inserting new transition
+            src_edge.src.out.remove(src_edge)
+            # dst_edge.dst.in.remove(src_edge)
+
+            # Creating 4 new edges
+            # B-------->E ~ B--(new_src_edge0)-->(new_src_node)--(new_src_edge1)-->E
+            new_src_edge0 = Edge(src_edge.src, new_src_node)
+            new_src_edge1 = Edge(new_src_node, src_edge.dst)
+            new_dst_edge0 = Edge(dst_edge.src, new_dst_node)
+            new_dst_edge1 = Edge(new_dst_node, dst_edge.dst)
+
+            # Adding edges to respective nodes
+            src_edge.src.out.append(new_src_edge0)
+            dst_edge.src.out.append(new_dst_edge0)
+            new_src_node.out.append(new_src_edge1)
+            new_dst_node.out.append(new_dst_edge1)
 
         # Prune graph
 
