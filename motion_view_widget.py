@@ -21,7 +21,6 @@ class MotionViewWidget(QtOpenGL.QGLWidget):
         self._update_timer = QtCore.QTimer()
         self._update_timer.timeout.connect(self.on_next_frame)
         self._update_timer.start(1.0 / 120.0)
-        #self.set_exclusive_mouse(True)
         self._last_mouse_pos = None
         self._camera_enabled = False
 
@@ -49,11 +48,13 @@ class MotionViewWidget(QtOpenGL.QGLWidget):
         pass
 
     def mousePressEvent(self, event):
-        print("PressEvent " + str(event))
+        pass
 
     def mouseMoveEvent(self, event):
         if self._is_camera_control_enabled():
-            self._camera.on_mouse_move(-dx, dy)
+            # TODO(Edoardo): call camera controller
+            #self._camera.on_mouse_move(-dx, dy)
+            pass
 
     def keyPressEvent(self, event):
         # It is needed since QT launches Press and Release events repeatedly when
