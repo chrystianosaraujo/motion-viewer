@@ -49,11 +49,13 @@ class MotionGraph:
             self.label = ''
             self.motion = motion
             self.out = []
+            self.iin = []
             self.label = ''
 
         def add_edge(self, dst, motion, frames):
             edge = MotionGraph.Edge(self, dst, motion, frames)
             self.out.append(edge)
+            dst.iin.append(edge)
 
     class Edge:
         def __init__(self, src, dst, motion, frames):
@@ -78,11 +80,14 @@ class MotionGraph:
             mid_node = MotionGraph.Node(self.motion)
             edgel = MotionGraph.Edge(self.src, mid_node, self.motion, self.frames[:split])
             edger = MotionGraph.Edge(mid_node, self.dst, self.motion, self.frames[split:])
-            mid_node.out.append(edger)
             self.src.out.append(edgel)
+            mid_node.iin.append(edgel)
+            mid_node.out.append(edger)
+            self.dst.iin.append(edger)
 
             # Deregistering
             self.src.out.remove(self)
+            self.dst.iin.remove(self)
             
             return mid_node
 
@@ -445,7 +450,7 @@ class MotionGraph:
                             cur = out_edge.dst
                             break
 
-    def _graph_export_graphviz(self):
+    def _graph_export_graphviz(self, filename):
         dot = Digraph(comment='Motion Graph')
 
         visited = {}
@@ -462,8 +467,7 @@ class MotionGraph:
         for node in self._nodes:
             _export_node_rec(node)
 
-        dot.render('out.gv', view=True)
-        # dot.render() ??? TODO
+        dot.render(filename, view=True)
 
     def _generate_graph(self):
         self._nodes.clear()
@@ -476,6 +480,7 @@ class MotionGraph:
             motion_end.label = f'Motion {ii} End'
             transition = MotionGraph.Edge(motion_beg, motion_end, motion, np.arange(motion.frame_count))
             motion_beg.out.append(transition)
+            motion_end.iin.append(transition)
             self._nodes.append(motion_beg)
 
         # Insert transitions between motions for each local minima
@@ -511,11 +516,55 @@ class MotionGraph:
                 mid_dst = dst_edge.split(dst)
                 mid_src.add_edge(mid_dst, None, [0])
 
-        # Prune graph
+            if minima is self._selected_local_minima[5]:
+                break
 
         # Export
-        self._graph_export_graphviz()
+        self._graph_export_graphviz('unpruned.gv')
 
+        # Pruning graph finding strongest connected component for each motion
+        # kosaraujo
+        assert(len(self._motions) == len(self._nodes))
+        all_comp_nodes = []
+
+        for ii, motion in enumerate(self._motions):
+            comp_nodes = []
+            visited = {}
+
+            def rec_add(node):
+                if node in visited:
+                    return
+
+                visited[node] = True
+                for out_edge in node.out:
+                    if (out_edge.motion == motion or out_edge.dst.motion == motion):
+                        rec_add(out_edge.dst)
+                comp_nodes.append(node)
+
+            rec_add(self._nodes[ii])
+            all_comp_nodes.append(comp_nodes)
+
+        dlist = [] # Node delete list
+        for ii, motion in enumerate(self._motions):
+            comp_nodes = all_comp_nodes[ii]
+            tags = { }
+            cur_tag = 0
+            # dbg.trace()
+            for jj, comp_node in enumerate(reversed(comp_nodes)):
+                traverse_stack = [comp_node]
+                while traverse_stack:
+                    node = traverse_stack.pop(0)
+                    if node in tags:
+                        continue
+                    tags[node] = cur_tag
+                    node.label += f'{cur_tag}'
+                    for in_edge in node.iin:
+                        if (in_edge.motion == motion or in_edge.src.motion == motion) and in_edge.src not in tags:
+                            traverse_stack.insert(0, in_edge.src)    
+                cur_tag += 1
+
+
+        self._graph_export_graphviz('pruned.gv')
 
 if __name__ == "__main__":
     from skeleton import *
