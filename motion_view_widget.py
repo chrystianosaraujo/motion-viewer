@@ -21,10 +21,12 @@ class MotionViewWidget(QtOpenGL.QGLWidget):
         self._update_timer = QtCore.QTimer()
         self._update_timer.timeout.connect(self.on_next_frame)
         self._update_timer.start(1.0 / 120.0)
+        self._saved_mouse_pos = None
         self._last_mouse_pos = None
         self._camera_enabled = False
 
         self.setFocusPolicy(Qt.StrongFocus)
+        self.setMouseTracking(True)
 
     def shutdown(self, **_):
         self._motion_render.clean_up()
@@ -48,13 +50,22 @@ class MotionViewWidget(QtOpenGL.QGLWidget):
         pass
 
     def mousePressEvent(self, event):
-        pass
+        self._last_mouse_pos = self.cursor().pos()
+        self._save_cursor_position()
+        self._enable_camera_control(True)
+
+    def mouseReleaseEvent(self, event):
+        self._enable_camera_control(False)
+        self._restore_cursor_position()
 
     def mouseMoveEvent(self, event):
         if self._is_camera_control_enabled():
-            # TODO(Edoardo): call camera controller
-            #self._camera.on_mouse_move(-dx, dy)
-            pass
+            point = QtCore.QPoint(event.globalX(), event.globalY())
+            dx = point.x() - self._last_mouse_pos.x()
+            dy = point.y() - self._last_mouse_pos.y()
+            self._camera.on_mouse_move(dx, dy)
+            self._last_mouse_pos = point
+
 
     def keyPressEvent(self, event):
         # It is needed since QT launches Press and Release events repeatedly when
@@ -63,7 +74,7 @@ class MotionViewWidget(QtOpenGL.QGLWidget):
             return
 
         if event.key() in MotionViewWidget.CAMERA_CONTROL_KEYS:
-            self._enable_camera_control(True)
+            self._camera.on_key_down(event.key())
 
     def keyReleaseEvent(self, event):
         # It is needed since QT launches Press and Release events repeatedly when
@@ -72,13 +83,12 @@ class MotionViewWidget(QtOpenGL.QGLWidget):
             return
 
         if event.key() in MotionViewWidget.CAMERA_CONTROL_KEYS:
-            self._enable_camera_control(False)
-
-    def on_update(self, dt):
-        self._camera.update(dt)
+            self._camera.on_key_up(event.key())
 
     def on_next_frame(self):
+        self._camera.update(1.0 / 120.0)
         self._frame += 1
+        self.updateGL()
 
     def _setup_renderers(self):
         skeleton = AnimatedSkeleton()
@@ -98,3 +108,11 @@ class MotionViewWidget(QtOpenGL.QGLWidget):
 
     def _is_camera_control_enabled(self):
         return self._camera_enabled
+
+    def _save_cursor_position(self):
+        self._saved_mouse_pos = self.cursor().pos()
+
+    def _restore_cursor_position(self):
+        cursor = self.cursor()
+        cursor.setPos(self._saved_mouse_pos)
+        self.setCursor(cursor)
