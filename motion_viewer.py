@@ -20,7 +20,7 @@ class MotionViewer(pyglet.window.Window):
         self._screen_size = screen_size
 
         caption = "CPSC 526 - Final Project: Chrystiano Araujo & Edoardo Dominici"
-        vsync_enabled = True
+        vsync_enabled = False
 
         platform = pyglet.window.get_platform()
         display = platform.get_default_display()
@@ -53,7 +53,7 @@ class MotionViewer(pyglet.window.Window):
         self._setup_renderers()
         self.set_exclusive_mouse(True)
 
-        pyglet.clock.schedule_interval(self.on_update, 1.0 / 30)
+        pyglet.clock.schedule_interval(self.on_update, 1.0 / 120)
         pyglet.clock.schedule_interval(self.on_next_frame, 1.0 / 120)
         pyglet.clock.set_fps_limit(120)
 
@@ -82,8 +82,8 @@ class MotionViewer(pyglet.window.Window):
         self._motion_render.draw(self._frame)
         self._fps_display.draw()
 
-        # if self._frame % 10 == 0:
-        #     print(f'{pyglet.clock.get_fps()}')
+        if self._frame % 10 == 0:
+            print(f'{pyglet.clock.get_fps()}')
 
     def on_mouse_motion(self, x, y, dx, dy):
         self._camera.on_mouse_move(-dx, dy)
@@ -109,7 +109,7 @@ class MotionViewer(pyglet.window.Window):
 
     def _setup_renderers(self):
         skeleton = AnimatedSkeleton()
-        skeleton.load_from_file('data/05/05_01.bvh')
+        skeleton.load_from_file('data/05/05_03.bvh')
 
         self._motion_render = MotionRender(skeleton)
         self._environment_render = EnvironmentRender()

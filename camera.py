@@ -10,7 +10,7 @@ class FirstPersonCamera:
         self._velocity = glm.vec3(0.0, 0.0, 0.0)
         self._projection = glm.perspective(45.0, aspect_ratio, 0.01, 1000.0)
         self._speed = 10  # units per second
-        self._mouse_sensibility = 0.1
+        self._mouse_sensibility = 0.4
 
     def on_key_down(self, key):
         if key == pyglet.window.key.W:

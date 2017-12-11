@@ -14,6 +14,7 @@ import numpy as np
 
 
 class NodeType(enum.Enum):
+    UNKNOWN = -1 # Does -1 make sense in python as negative indices are valid ?
     HEAD = 0
     EYE = 1
     NECK = 2
@@ -36,59 +37,197 @@ class FormatError(Exception):
 
 # Hierarchical collection of joints with associated motion data
 class AnimatedSkeleton: 
+    class Node:
+        # All the private variables (_*) are not needed for creation, but are cached and can be computed from the public ones 
+        def __init__(self, name, ntype, offset=np.array([0.0, 0.0, 0.0]), position=np.array([0.0, 0.0, 0.0]), angles=np.array([0.0, 0.0, 0.0])):
+            self.name = name
+            self.ntype = ntype
+            self.offset = offset
+            self.position = position
+            self.angles = angles # 3 rotations 
+            self.children = []
+            self.ee_offset = None # In case the Node is an end effector this represents its ending point
+            self.rotation_order = None # 3 dimensional array containing order for X Y Z rotation
+            self._length = None # 3D length of the joint
+            self._rest_rot = None # Rotation at angles 0 with respect to (0, 1, 0). This is needed to correctly render joints
+            self._transform = None # Cached transform
+
     # Mapping type -> names
     # For readability
     BVH_JOINT_NAMES = {
         NodeType.HEAD: ['head'],
         NodeType.NECK: ['neck'],
         NodeType.EYE: ['eye'],
-        NodeType.TORSO: ['hip', 'chest', 'abdomen', 'spine', 'back', 'collar'],
+        NodeType.TORSO: ['hip', 'chest', 'abdomen', 'spine', 'back', 'collar', 'buttock'],
         NodeType.UPPER_LEG: ['upleg', 'thigh'],
         NodeType.LOWER_LEG: ['leg', 'shin'],
         NodeType.FOOT: ['foot', 'toe'],
         NodeType.UPPER_ARM: ['shoulder', 'shldr'],
         NodeType.LOWER_ARM: ['arm'],
-        NodeType.FINGER: ['finger', 'thumb', 'index', 'mid', 'ring', 'pinky']
+        NodeType.FINGER: ['finger', 'thumb', 'index', 'mid', 'ring', 'pinky'],
+        NodeType.HAND: ['hand']
     }
 
-    def __init__(self):
-        self._root = None
-        self._frame_time = 0
-        self._frames = []
-
-        self._traverse_func = None
-        self._traverse_func_nop = None
-        self._motion_cache = {}
+    def __init__(self, up=(0.0, 1.0, 0.0)):
+        self._frames = [] # [Node] 
+        self._frame_time = 0 # ms between each frame
+        self._reference_up = up # Reference up vector
 
         self._identity = glm.mat4()
-
-        self._bvh_types = {}
-        for t, names in AnimatedSkeleton.BVH_JOINT_NAMES.items():
-            for name in names:
-                self._bvh_types[name] = t
 
     def __len__(self):
         return len(self._frames)
 
-    # Loads the skeleton from file
-    # Currently only BVH (Biovision Hierarchy) is supported
-    # OSError is raised if <path> couldn't be opened
-    # UnsupportedError if the specified file in <path> is not supported
-    # FormatError if there were errors parsing the file
     def load_from_file(self, path):
-        # Not really needed
+        """ 
+        Loads skeleton info and data from file. 
+        Currently only BVH (Biovision Hierarchy) is supported.
+        OSError is raised if <path> doesn't point to an openable file
+        UnsupportedError is raised if the file located at <path> is not of a supported format.
+        FormatError is raised if errors occurred while parsing the file
+        """
+        # Not really needed right not
         _, ext = os.path.splitext(path)
         if ext == '.bvh':
             try:
-                self._root, self._frame_time, self._frames = bvh.import_bvh(path)
-                self._traverse_func = self._traverse_bvh
-                self._traverse_func_nop = self._traverse_bvh_nop
+                print(f'Loading BVH from: {path}')
+                bvh_root, bvh_frame_time, bvh_frames = bvh.import_bvh(path)
+                
+                def process_bvh_rec(frame, node):
+                    rotx = bvh_frames[frame][node.rotx_idx] if node.rotx_idx is not None else None
+                    roty = bvh_frames[frame][node.roty_idx] if node.roty_idx is not None else None
+                    rotz = bvh_frames[frame][node.rotz_idx] if node.rotz_idx is not None else None
+
+                    posx = bvh_frames[frame][node.offx_idx] if node.offx_idx is not None else 0
+                    posy = bvh_frames[frame][node.offy_idx] if node.offy_idx is not None else 0
+                    posz = bvh_frames[frame][node.offz_idx] if node.offz_idx is not None else 0
+
+                    # Creating internal node representation
+                    skeleton_node = AnimatedSkeleton.Node(node.name, self._find_type_bvh(node.name))
+                    skeleton_node.offset = np.array(node.offset)
+                    skeleton_node.position = np.array([posx, posy, posz])
+                    skeleton_node.angles = np.array([rotx, roty, rotz])
+                    skeleton_node._length = node.estimated_length
+                    skeleton_node._transform = self._compute_transform(node.offset, (rotx, roty, rotz), (posx, posy, posz), node.rotation_order)
+                    skeleton_node._rest_rot = self._compute_rest_rotation(node.estimated_length)
+                    skeleton_node.rotation_order = node.rotation_order
+
+                    if node.is_ee:
+                        skeleton_node.ee_offset = np.array(node.ee_offset)
+
+                    for child in node.children:
+                        skeleton_node.children.append(process_bvh_rec(frame, child))
+
+                    return skeleton_node
+
+                num_frames = len(bvh_frames)
+                print(f'Processing {num_frames} nodes')
+                for frame in range(num_frames):
+                    self._frames.append(process_bvh_rec(frame, bvh_root[0]))
+
+                self._frame_time = bvh_frame_time
+
+                print(f'Finished: {path}')
+
             except bvh.BVHFormatError as err:
                 raise FormatError(str(err))
         else:
-            raise UnsupportedError('Unsupported format (currently only BVH is supported)')
+            raise UnsupportedError('Unsupported format (currently only BVH is supported)')    
 
-    # Returns the number of frames in the loaded motion data
+
+    def load_from_data(self, frames):
+        """ Creates an animated skeleton directly from a list of Nodes (one per frame) and
+            computes transform and rest rotation.
+        """
+        if not frames:
+            # error() 
+            return
+
+        print(f'Processing {len(frames)} frame')
+
+        # Same as internal format
+        self._frames = frames
+
+        def _process_data_rec(node):
+            node._transform = self._compute_transform(node.offset, node.angles, node.position, node.rotation_order)
+
+            if len(node.children) > 1:
+                node._length = (0.0, 0.0, 0.0)
+            elif len(node.children) == 1:
+                node._length = node.children[0].offset
+            elif node.is_ee:
+                node._length = node.ee_offset
+
+            node._rest_rot = self._compute_rest_rotation(node._length)
+
+
+    def traverse(self, frame, callback, root_transform=glm.mat4(1.0)):
+        """
+            DFS Skeleton traversal which calls callback() on all renderable nodes.
+            callback(type, name, transform, length, rest_rotation)
+            TODO: This should probably be called traverse_visible() or traverse_renderable()
+        """
+        if frame not in range(0, self.frame_count):
+            # error()
+            return
+
+        if not self._frames:
+            # error()
+            return
+
+        self._traverse(self._frames[frame], root_transform, callback)
+
+    def get_all_positions(self, frame):
+        """ Retrieves a list of all global joint positions (not relative to parent) after transformation
+            for the specified frame.
+            -> (positions, types)
+            len(positions) == len(types)
+        """
+        positions = []
+        types = []
+
+        def gather_positions_rec(node, parent_transform):
+            transform = parent_transform * node._transform
+            trans = transform[3, :3]
+            positions.append(np.asarray(trans).ravel())
+            types.append(node.ntype)
+
+            for child in node.children:
+                gather_positions_rec(child, copy.copy(transform))
+
+
+        gather_positions_rec(self._frames[frame], glm.mat4(1.0))
+        return (np.array(positions), types)
+
+
+    def get_all_rotations(self, frame):
+        """ Retrieves the list of relative joint rotations for the specified frame flattened 
+            in a single array.
+            -> (rotations, types)
+            len(rotations) == len(types)
+        """
+
+        rotations = []
+        types = []
+
+        def gather_rotations_rec(node):
+            rotations.append(node.angles[0])
+            types.append(node.ntype)
+            rotations.append(node.angles[1])
+            types.append(node.ntype)
+            rotations.append(node.angles[2])
+            types.append(node.ntype)
+
+            for child in node.children:
+                gather_rotations_rec(child)
+
+        gather_rotations_rec(self._frames[frame])
+        return (np.array(rotations), types)
+
+    def get_frame_root(self, frame):
+        # print(f'{frame} : {self.frame_count}')
+        return self._frames[frame]
+
     @property
     def frame_count(self):
         return len(self._frames)
@@ -98,57 +237,25 @@ class AnimatedSkeleton:
     def frame_time(self):
         return self._frame_time
 
-    # Traverses the internal hierarchy top-down calculating the combined
-    # transforms for the specified <frame>.
-    # <callback> is called for each encountered node
-    # callback(node_type : NodeType, node_name : str, transform)
-    # Transforms are affine 4x4
-    def traverse(self, frame, callback):
-        if frame not in range(0, self.frame_count):
-            # error()
-            return
 
-        if not self._root:
-            # error()
-            return
+    def _traverse(self, root, root_transform, callback):
+        traverse_stack = [root]
+        transform_stack = [root_transform]
 
-        transform = glm.mat4(1.0)
-        self._traverse_func(frame, callback, self._root[0], transform)
+        while traverse_stack:
+            node = traverse_stack.pop(0)
+            parent_transform = transform_stack.pop(0)
 
-    # Returns a tuple containg all the joint rotations with associated
-    # node type for the specified frame. Multiple calls return the angles in
-    # the same order
-    def get_all_joint_rotations(self, frame):  # -> ([rotations], [types])
-        rotations = []
-        types = []
+            transform = parent_transform * node._transform
 
-        def gather_rotations(type, name, rotx, roty, rotz):
-            if rotx is not None:
-                rotations.append(rotx)
-                types.append(type)
-            if roty is not None:
-                rotations.append(roty)
-                types.append(type)
-            if rotz is not None:
-                rotations.append(rotz)
-                types.append(type)
+            if len(node.children) <= 1 and callback:
+                callback(node.ntype, node.name, transform, glm.length(node._length), node._rest_rot)
 
-        self._traverse_func_nop(self._root[0], frame, gather_rotations)
-        return (rotations, types)
+            for child in node.children:
+                traverse_stack.insert(0, child)
+                transform_stack.insert(0, transform)
 
-    def get_all_joints_position(self, frame):  # -> ([positions], [types])
-        positions = []
-        ntypes = []
 
-        def gather_positions(ntype, name, transform, dim, rest_rot):
-            trans = transform[3, :3]
-            positions.append(np.asarray(trans).ravel())
-            ntypes.append(ntype)
-
-        self.traverse(frame, gather_positions)
-        return (np.array(positions), ntypes)
-
-    # TODO: This should be cached
     def _find_type_bvh(self, name):
         for t, names in AnimatedSkeleton.BVH_JOINT_NAMES.items():
             for cname in names:
@@ -157,113 +264,81 @@ class AnimatedSkeleton:
         print(f'Failed to find type for {name}')
         return None
 
-    def _traverse_bvh(self, frame, callback, node, base_transform):
-        traverse_stack = [node]
-        transform_stack = [base_transform]
+    def _compute_transform(self, offset, rotation, position, rotation_order):
+        offx, offy, offz = offset
+        rotx, roty, rotz = rotation
+        posx, posy, posz = position
 
-        while traverse_stack:
-            node = traverse_stack.pop(0)
-            parent_transform = transform_stack.pop(0)
+        Rx = glm.mat4(1.0)
+        if rotx:
+            c = math.cos(math.radians(rotx))
+            s = math.sin(math.radians(rotx))
 
-            # Checking if current frame is cached
-            # TODO: Currently using names which are not guarantedd to be unique, should be using
-            # a unique index
-            transform = None
-            if node.name not in self._motion_cache or frame not in self._motion_cache[node.name]:
-                rotx = self._frames[frame][node.rotx_idx] if node.rotx_idx is not None else None
-                roty = self._frames[frame][node.roty_idx] if node.roty_idx is not None else None
-                rotz = self._frames[frame][node.rotz_idx] if node.rotz_idx is not None else None
+            Rx = glm.mat4([1.0, 0.0, 0.0, 0.0],
+                          [0.0, c, s, 0.0],
+                          [0.0, -s, c, 0.0],
+                          [0.0, 0.0, 0.0, 1.0])
 
-                offx = self._frames[frame][node.offx_idx] if node.offx_idx is not None else 0
-                offy = self._frames[frame][node.offy_idx] if node.offy_idx is not None else 0
-                offz = self._frames[frame][node.offz_idx] if node.offz_idx is not None else 0
+        Ry = glm.mat4(1.0)
+        if roty:
+            c = math.cos(math.radians(roty))
+            s = math.sin(math.radians(roty))
 
-                if rotx:
-                    c = math.cos(math.radians(rotx))
-                    s = math.sin(math.radians(rotx))
+            Ry = glm.mat4([c, 0.0, -s, 0.0],
+                          [0.0, 1.0, 0.0, 0.0],
+                          [s, 0.0, c, 0.0],
+                          [0.0, 0.0, 0.0, 1.0])
 
-                    Rx = glm.mat4([1.0, 0.0, 0.0, 0.0],
-                                  [0.0, c, s, 0.0],
-                                  [0.0, -s, c, 0.0],
-                                  [0.0, 0.0, 0.0, 1.0])
+        Rz = glm.mat4(1.0)
+        if rotz:
+            c = math.cos(math.radians(rotz))
+            s = math.sin(math.radians(rotz))
 
-                else:
-                    Rx = copy.copy(self._identity)
+            Rz = glm.mat4([c, s, 0.0, 0.0],
+                          [-s, c, 0.0, 0.0],
+                          [0.0, 0.0, 1.0, 0.0],
+                          [0.0, 0.0, 0.0, 1.0])
 
-                if roty:
-                    c = math.cos(math.radians(roty))
-                    s = math.sin(math.radians(roty))
 
-                    Ry = glm.mat4([c, 0.0, -s, 0.0],
-                                  [0.0, 1.0, 0.0, 0.0],
-                                  [s, 0.0, c, 0.0],
-                                  [0.0, 0.0, 0.0, 1.0])
+        # The multiplication order depends on how they are specified in the file
+        Rall = (Rx, Ry, Rz)
+        R = Rall[rotation_order[0]] * Rall[rotation_order[1]] * Rall[rotation_order[2]]
+        T = glm.mat4([[1.0, 0.0, 0.0, 0.0],
+                      [0.0, 1.0, 0.0, 0.0],
+                      [0.0, 0.0, 1.0, 0.0],
+                      [offx + posx, offy + posy, offz + posz, 1.0]])
 
-                else:
-                    Ry = copy.copy(self._identity)
+        # Composing transforms
+        return T * R
 
-                if rotz:
-                    c = math.cos(math.radians(rotz))
-                    s = math.sin(math.radians(rotz))
+    # Calculating rotation needed for the up vector (0, 1, 0) to be orientated correctly
+    # along the joint's direction (estimated_length) at rest position.
+    def _compute_rest_rotation(self, direction):
+        def compute_rotation(a, v):
+            c = math.cos(a)
+            s = math.sin(a)
+            axis = glm.normalize(v)
+            tmp = glm.vec4((1.0 - c) * axis)           
+            R = glm.mat4(c + ((1) - c)      * axis[0]     * axis[0],
+            ((1) - c) * axis[0] * axis[1] + s * axis[2],
+            ((1) - c) * axis[0] * axis[2] - s * axis[1],
+            (0),
+            ((1) - c) * axis[1] * axis[0] - s * axis[2],
+            c + ((1) - c) * axis[1] * axis[1],
+            ((1) - c) * axis[1] * axis[2] + s * axis[0],
+            (0),
+            ((1) - c) * axis[2] * axis[0] + s * axis[1],
+            ((1) - c) * axis[2] * axis[1] - s * axis[0],
+            c + ((1) - c) * axis[2] * axis[2],
+            (0),
+            0, 0, 0, 1)
+            return R
 
-                    Rz = glm.mat4([c, s, 0.0, 0.0],
-                                  [-s, c, 0.0, 0.0],
-                                  [0.0, 0.0, 1.0, 0.0],
-                                  [0.0, 0.0, 0.0, 1.0])
 
-                else:
-                    Rz = copy.copy(self._identity)                    
-
-                # Right to left multiplication
-                # R: Rz * Rx * Ry
-
-                # THe multiplication order depends on how they are specified in the file
-                R = node.compose_rotations_ordered(Rx, Ry, Rz)
-                T = glm.mat4([[1.0, 0.0, 0.0, 0.0],
-                              [0.0, 1.0, 0.0, 0.0],
-                              [0.0, 0.0, 1.0, 0.0],
-                              [offx + node.offset[0], offy + node.offset[1], offz + node.offset[2], 1.0]])
-
-                # with open('out.txt', 'a') as ff:
-                #     ff.write(f'{node.name}\n {Rx}\n {Ry}\n {Rz}\n {T}\n')
-
-                transform = parent_transform * T * R
-                if node.name not in self._motion_cache:
-                    self._motion_cache[node.name] = {}
-                self._motion_cache[node.name][frame] = transform
-            else:
-                transform = self._motion_cache[node.name][frame]
-
-            if len(node.children) <= 1 and callback:
-                # Need to expand in 3 dimensions
-                if not hasattr(node, 'rest_rot'):
-                    up = glm.vec3(0.0, 1.0, 0.0)
-                    initial_dir_unnorm = glm.vec3(node.estimated_length)
-                    initial_dir = glm.normalize(initial_dir_unnorm)
-                    ortho = glm.cross(up, initial_dir)
-                    angle = math.acos(glm.dot(up, initial_dir))
-                    if math.isnan(angle):
-                        node.rest_rot = glm.mat4()
-                    else:
-                        node.rest_rot = glm.rotate(glm.mat4(), angle, ortho)
-                    node.dimension = glm.length(initial_dir_unnorm)  # Make it 3d
-
-                callback(self._find_type_bvh(node.name), node.name, transform, node.dimension, node.rest_rot)
-
-            for child in node.children:
-                traverse_stack.insert(0, child)
-                transform_stack.insert(0, transform)
-
-    def _traverse_bvh_nop(self, root, frame, callback):
-        traverse_stack = [root]
-        while traverse_stack:
-            node = traverse_stack.pop(0)
-
-            rotx = self._frames[frame][node.rotx_idx] if node.rotx_idx is not None else None
-            roty = self._frames[frame][node.roty_idx] if node.roty_idx is not None else None
-            rotz = self._frames[frame][node.rotz_idx] if node.rotz_idx is not None else None
-
-            callback(self._find_type_bvh(node.name), node.name, rotx, roty, rotz)
-
-            for child in node.children:
-                traverse_stack.append(child)
+        initial_dir_unnorm = glm.vec3(direction)
+        initial_dir = glm.normalize(initial_dir_unnorm)
+        ortho = glm.cross(self._reference_up, initial_dir)
+        angle = math.acos(glm.dot(self._reference_up, initial_dir))
+        if math.isnan(angle):
+            return glm.mat4(1.0)
+        return compute_rotation(angle, ortho) #glm.rotate(glm.mat4(), angle, ortho)

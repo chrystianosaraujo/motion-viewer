@@ -23,14 +23,12 @@ class BVHNode:
         self.parent = None
         self.children = []
 
-    # Composes the rotations as originally specified in the bvh data
-    def compose_rotations_ordered(self, Rx, Ry, Rz):
+    @property
+    def rotation_order(self):
         if self.rot_order is None:
             rot_idxs = [self.rotx_idx, self.roty_idx, self.rotz_idx]
             self.rot_order = sorted(range(len(rot_idxs)), key=lambda i: rot_idxs[i])
-
-        Rall = (Rx, Ry, Rz)
-        return Rall[self.rot_order[0]] * Rall[self.rot_order[1]] * Rall[self.rot_order[2]]
+        return self.rot_order
 
 
 class BVHFormatError(Exception):
