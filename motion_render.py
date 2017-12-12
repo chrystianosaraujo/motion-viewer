@@ -47,6 +47,8 @@ class MotionRender:
         self._uniforms = {}
         self._character_color = None
 
+        self._debug_characters = []
+
     def set_render_matrices(self, view, project):
         self._view_matrix = view
         self._proj_matrix = project
@@ -79,7 +81,49 @@ class MotionRender:
     def set_color(self, color):
         self._character_color = color
 
-    def draw(self, frame):
+    def draw_debug(self):
+        self._uniforms = {
+            'model_mat_loc': self._shader_program.uniform_location("modelMatrix"),
+            'view_mat_loc': self._shader_program.uniform_location("viewMatrix"),
+            'proj_mat_loc': self._shader_program.uniform_location("projectionMatrix"),
+            'normal_mat_loc': self._shader_program.uniform_location("normalMatrix"),
+            'diffuse_color_loc': self._shader_program.uniform_location("diffuseColor"),
+            'ambient_color_loc': self._shader_program.uniform_location("ambientColor"),
+            'specular_color_loc': self._shader_program.uniform_location("specularColor"),
+            'shininess_loc': self._shader_program.uniform_location("shininess")
+        }
+
+        # Setting all shared data
+        self._shader_program.bind()
+        GL.glEnable(GL.GL_DEPTH_TEST)
+
+        GL.glUniformMatrix4fv(self._uniforms['view_mat_loc'], 1, GL.GL_FALSE, np.ascontiguousarray(self._view_matrix))
+        GL.glUniformMatrix4fv(self._uniforms['proj_mat_loc'], 1, GL.GL_FALSE, np.ascontiguousarray(self._proj_matrix))
+        GL.glUniform4fv(self._uniforms['ambient_color_loc'], 1, np.ascontiguousarray(self._ambient_color))
+        GL.glUniform4fv(self._uniforms['diffuse_color_loc'], 1, np.ascontiguousarray(self._diffuse_color))
+        GL.glUniform4fv(self._uniforms['specular_color_loc'], 1, np.ascontiguousarray(self._specular_color))
+        GL.glUniform1f(self._uniforms['shininess_loc'], self._shininess)
+
+       
+        color = [
+            glm.vec4(1.0, 0.0, 0.0, 1.0),
+            glm.vec4(0.0, 1.0, 0.0, 1.0),
+            glm.vec4(0.0, 0.0, 1.0, 1.0),
+        ]
+
+        if self._debug_characters:            
+            for ii, (edge, t) in enumerate(self._debug_characters):
+#                root_transform = glm.translate(glm.mat4(), glm.vec3(ii * 10, 0.0, ii * 10))
+                self.set_color(color[ii])
+                for jj, frame in enumerate(edge.frames):
+                    if jj % 5 == 0:
+                        edge.motion.traverse(frame, self._on_draw_part, t)
+
+
+    def draw(self, frame):        
+        if self._debug_characters:
+            self.draw_debug()
+
         if self._skeleton is None:
             return
 

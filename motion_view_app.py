@@ -54,7 +54,20 @@ class MotionViewerApp:
             self._motion_graph.build()
             self._motion_graph.serialize()
 
+        mo1, t1 = self._motion_graph.begin_edge(1)
+        self._ui.scene_widget._motion_render._debug_characters.append((mo1, t1))
+        print(t1)
+        mo2, t2 = self._motion_graph.next_edge(mo1)
+        self._ui.scene_widget._motion_render._debug_characters.append((mo2, t2))
+        print(t2)
+        mo3, t3 = self._motion_graph.next_edge(mo2)
+        self._ui.scene_widget._motion_render._debug_characters.append((mo3, t3))
+        print(t3)
+
     def on_next_frame(self):
+        self._ui.scene_widget.updateGL()        
+        return
+
         global BREAK
         if self._motion_graph is None:
             return

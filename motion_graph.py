@@ -5,6 +5,7 @@ from PIL import Image
 from graphviz import Digraph
 from pyquaternion import Quaternion
 import numpy as np
+import glm
 import math
 import copy
 import pickle
@@ -53,11 +54,24 @@ class MotionGraph:
             self.motion = motion
             self.out = []
             self.iin = []
+            self.out_transforms = None
 
         def add_edge(self, dst, motion, frames=None):
             edge = MotionGraph.Edge(self, dst, motion, frames)
             self.out.append(edge)
             dst.iin.append(edge)
+
+        def finalize(self, compute_alignment):
+            self.out_transforms = np.empty((len(self.iin), len(self.out)), dtype=object)
+
+            for iini, in_edge in enumerate(self.iin):
+                for outi, out_edge in enumerate(self.out):
+                    last_in_positions = in_edge.motion.get_all_positions(in_edge.frames[-1])[0]
+                    first_out_positions = out_edge.motion.get_all_positions(in_edge.frames[0])[0]
+                    theta, tx, tz = compute_alignment(last_in_positions, first_out_positions)
+                    transform = glm.translate(glm.mat4(), glm.vec3(0.0, 0.0, 0.0))
+                    #transform = glm.rotate(transform, theta, glm.vec3(0.0, 1.0, 0.0))
+                    self.out_transforms[iini, outi] = transform
 
     class Edge:
         def __init__(self, src, dst, motion, frames):
@@ -312,14 +326,15 @@ class MotionGraph:
 
 
     def begin_edge(self, motion_idx):
-        return self._nodes[motion_idx].out[0]
+        return (self._nodes[motion_idx].out[0], glm.mat4())
 
     def next_edge(self, edge):
         dst = edge.dst
-        for out_edge in dst.out:
+        in_edge_idx = dst.iin.index(edge)
+        for ii, out_edge in enumerate(dst.out):
             if out_edge.is_transition():
-                return out_edge
-        return dst.out[0]
+                return (out_edge, dst.out_transforms[in_edge_idx, ii])
+        return (dst.out[0], dst.out_transforms[in_edge_idx, 0])
 
     def _difference_between_frames(self, i, j):
         window_i = self._motion_window(i, i + self._window_length - 1)
@@ -336,7 +351,7 @@ class MotionGraph:
         diff_vec = window_i - window_j
         return np.linalg.norm(diff_vec)
 
-    def _compute_alignment_between_frames(self, frame_i, frame_j):
+    def _compute_alignment_between_frames(self, frame_i_positions, frame_j_positions):
         """ This function computes the transformation (Tx, Tz, Theta) that aligns two different poses.
         It basically computes an rotation around the y-axis and a translation on the x-z plane that
         aligns the pose j in respect to pose i so that the squared distance between the corresponding
@@ -345,9 +360,6 @@ class MotionGraph:
         Returns
            (theta, tx, ty)
         """
-
-        frame_i_positions = self._frames_pose_positions[frame_i]
-        frame_j_positions = self._frames_pose_positions[frame_j]
 
         num_parts = frame_i_positions.shape[0]
         if frame_j_positions.shape[0] != num_parts:
@@ -403,8 +415,11 @@ class MotionGraph:
             Returns a new window of frames that creates the transition from the
             window_i to window_j.
         """
+        #import ipdb; ipdb.set_trace()
         num_frames = window_i[1] - window_i[0] + 1
-        angle, tx, tz = self._compute_alignment_between_frames(window_i[0], window_j[0])
+        frame_i_positions = self._frames_pose_positions[window_i[0]]
+        frame_j_positions = self._frames_pose_positions[window_j[0]]
+        angle, tx, tz = self._compute_alignment_between_frames(frame_i_positions, frame_j_positions)
 
         align_trans = np.array([tx, 0.0, tz])
         align_rot   = Quaternion(axis=[0.0, 1.0, 0.0], radians=angle)
@@ -643,7 +658,7 @@ class MotionGraph:
             if minima is self._selected_local_minima[3]:
                 break
 
-        #self._graph_export_graphviz('pruned.gv')
+        self._graph_export_graphviz('pruned.gv')
 
         # Pruning graph finding strongest connected component for each motion
         # kosaraujo
@@ -685,6 +700,13 @@ class MotionGraph:
                             traverse_stack.insert(0, in_edge.src)    
                 cur_tag += 1
 
+        def finalize_rec(node):
+            node.finalize(self._compute_alignment_between_frames)
+            for out_edge in node.out:
+                finalize_rec(out_edge.dst)
+
+        for node in self._nodes:
+            finalize_rec(node)
 
 if __name__ == "__main__":
     from skeleton import *
