@@ -52,6 +52,12 @@ class AnimatedSkeleton:
             self._rest_rot = None # Rotation at angles 0 with respect to (0, 1, 0). This is needed to correctly render joints
             self._transform = None # Cached transform
 
+        def rec_print(self, indent=0):
+            buf = indent * '\t' + f'Name: {self.name} Pos: {self.position} Angles: {self.angles}\n'
+            for child in self.children:
+                buf += child.rec_print(indent+1)
+            return buf
+
     # Mapping type -> names
     # For readability
     BVH_JOINT_NAMES = {
@@ -142,7 +148,7 @@ class AnimatedSkeleton:
         if not frames:
             # error() 
             return
-
+        
         print(f'Processing {len(frames)} frame')
 
         # Same as internal format
@@ -160,6 +166,8 @@ class AnimatedSkeleton:
 
             node._rest_rot = self._compute_rest_rotation(node._length)
 
+        for frame in self._frames:
+            _process_data_rec(frame)
 
     def traverse(self, frame, callback, root_transform=glm.mat4(1.0)):
         """

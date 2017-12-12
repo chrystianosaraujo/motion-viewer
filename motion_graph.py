@@ -5,6 +5,9 @@ from PIL import Image
 from graphviz import Digraph
 from pyquaternion import Quaternion
 import numpy as np
+import math
+import copy
+import pickle
 
 from functools import reduce
 import multiprocessing
@@ -44,13 +47,6 @@ def gradient_magnitude(gx, gy):
     return out
 
 class MotionGraph:
-    class Edge:
-        def __init__(self, src, dst, motion, frames):
-            self._src = src
-            self._dst = dst
-            self._motion = motion
-            self._frames = frames
-
     class Node:
         def __init__(self, motion):
             self.label = ''
@@ -58,7 +54,7 @@ class MotionGraph:
             self.out = []
             self.iin = []
 
-        def add_edge(self, dst, motion, frames):
+        def add_edge(self, dst, motion, frames=None):
             edge = MotionGraph.Edge(self, dst, motion, frames)
             self.out.append(edge)
             dst.iin.append(edge)
@@ -67,8 +63,12 @@ class MotionGraph:
         def __init__(self, src, dst, motion, frames):
             self.src = src
             self.dst = dst
+
+            self._is_transition = frames is None
             self.motion = motion
             self.frames = frames
+            if self._is_transition:
+                self.frames = np.arange(self.motion.frame_count)
 
         def split(self, frame):
             if frame < self.frames[0] or frame > self.frames[-1]:
@@ -99,10 +99,18 @@ class MotionGraph:
 
         @property
         def label(self):
-            if self.motion != None:
+            if self.motion is not None and self.frames is not None:
                 return f'{self.frames[0]}..{self.frames[-1]}'
             else:
                 return 'Transition'
+
+        def is_transition(self):
+            return self._is_transition
+
+        def is_valid_frame(self, frame):
+            #import ipdb;ipdb.set_trace()
+            return frame >= 0 and frame < len(self.frames)
+
 
     INVALID_DISTANCE = float("nan")
 
@@ -151,6 +159,9 @@ class MotionGraph:
         # ps = pstats.Stats(pr, stream=s).sort_stats(sortby)
         # ps.print_stats()
         # print(s.getvalue())
+
+    def serialize(self):
+        return pickle.dump(self, open("cache.p", "wb" ))
 
     def _build_similarity_matrix(self):
         self._build_list_of_poses()
@@ -257,10 +268,6 @@ class MotionGraph:
         Image.fromarray((regions_pixels_img * 255).astype('uint8'), "L").save("regions_pixels.png")
         Image.fromarray((only_minima_pixels_img * 255).astype('uint8'), "L").save("only_minima_pixels.png")
 
-        t = self._selected_local_minima[0]
-        self._blend_windows((t[0], t[0] + self._window_length - 1), (t[1] - (self._window_length - 1), t[1]))
-
-
         print("#REGIONS: " + str(len(regions_pixels)))
 
     @property
@@ -302,6 +309,17 @@ class MotionGraph:
                                "calling MotionGraph.build function.")
 
         np.savetxt(fn, self._similarity_mat, fmt='%1.4f')
+
+
+    def begin_edge(self, motion_idx):
+        return self._nodes[motion_idx].out[0]
+
+    def next_edge(self, edge):
+        dst = edge.dst
+        for out_edge in dst.out:
+            if out_edge.is_transition():
+                return out_edge
+        return dst.out[0]
 
     def _difference_between_frames(self, i, j):
         window_i = self._motion_window(i, i + self._window_length - 1)
@@ -373,12 +391,12 @@ class MotionGraph:
 
         return (theta, tx, tz)
 
-    def _blend_windows(self, window_i, window_j):
+    def _generate_transition(self, window_i, window_j):
         """ This function must be used to create a transition between
         two different motion clips.
 
         Args:
-            window_i, window_j: each window consist in a tuple with two values,
+            window_i, window_j: each window consists in a tuple with two values,
             which define the first and last interval frames.
  
         Returns:
@@ -393,6 +411,8 @@ class MotionGraph:
 
         frames_i = self._get_motion_window_as_hierarchical_poses(*window_i)
         frames_j = self._get_motion_window_as_hierarchical_poses(*window_j)
+
+        frames_j = copy.deepcopy(frames_j)
         blended_frames = copy.deepcopy(frames_i)
 
         for p, poses in enumerate(zip(frames_i, frames_j, blended_frames)):
@@ -400,15 +420,20 @@ class MotionGraph:
             a_p = 2 * math.pow((p + 1 - 1) / (num_frames - 1), 3) -\
                   3 * math.pow((p + 1 - 1) / (num_frames - 1), 2) + 1
 
+            #import ipdb;ipdb.set_trace()
+        
             pose_i, pose_j, pose_b = poses
 
             # Align pose_j in respect to pose_i
             pose_j.position = np.add(pose_j.position, np.array([tx, 0.0, tz]));
             pose_j.offset   = np.array([0.0, 0.0, 0.0])
 
-            root_j_quat  = quaternion_from_euler(*pose_j.angles)
+            roll, pitch, yaw = pose_j.angles
+            root_j_quat  = quaternion_from_euler(pitch, roll, yaw)
             aligned_root = root_j_quat * align_rot
-            pose_j.angles = aligned_root.yaw_pitch_roll
+
+            yaw, pitch, roll = aligned_root.yaw_pitch_roll
+            pose_j.angles = (roll, pitch, yaw)
 
             # Linear interpolates the root position
             pose_b.position = np.add(a_p * pose_i.position, (1 - a_p) * pose_j.position)
@@ -419,15 +444,22 @@ class MotionGraph:
                 poses = stack_nodes.pop()
                 pose_i, pose_j, pose_b = poses
 
-                quat_i = quaternion_from_euler(*pose_i.angles)
-                quat_j = quaternion_from_euler(*pose_j.angles)
-                blended_joint = Quaternion.slerp(quat_i, quat_j, 1 - a_p)
-                pose_b.angles = blended_joint.yaw_pitch_roll
+                roll, pitch, yaw = pose_i.angles
+                quat_i = quaternion_from_euler(pitch, roll, yaw)
 
+                roll, pitch, yaw = pose_j.angles
+                quat_j = quaternion_from_euler(pitch, roll, yaw)
+                blended_joint = Quaternion.slerp(quat_i, quat_j, 1 - a_p)
+
+                yaw, pitch, roll = blended_joint.yaw_pitch_roll
+                pose_b.angles = (roll, pitch, yaw)
+                
                 for nodes in zip(pose_i.children, pose_j.children, pose_b.children):
                     stack_nodes.insert(0, nodes)
 
-        return blended_frames
+        transition = AnimatedSkeleton()
+        transition.load_from_data(blended_frames)
+        return transition
 
     def _motion_window(self, begin_frame, end_frame):
         """ Returns the interval of motion frames given the first and last
@@ -571,6 +603,9 @@ class MotionGraph:
             src_motion = self._motion_data_containing_frame(gsrc)
             dst_motion = self._motion_data_containing_frame(gdst)
 
+            if minima is not self._selected_local_minima[3]:
+                continue
+
             # Getting frame idx relative to motion path
             src = self._motion_frame_number(src_motion, gsrc)
             dst = self._motion_frame_number(dst_motion, gdst)
@@ -584,18 +619,31 @@ class MotionGraph:
             dst_edge = self._graph_find_frame(dst_motion, dst)
 
             if src_edge == dst_edge:
-                if src < dst: # TODO: Does this make sense ?
-                    new_node1 = src_edge.split(src)
-                    new_node2 = new_node1.out[0].split(dst)
-                    new_node1.add_edge(new_node2, None, [0])
-                else:
-                    new_node1 = src_edge.split(dst)
-                    new_node2 = new_node1.out[0].split(src)
-                    new_node2.add_edge(new_node1, None, [0])
+                gfirst, glast = (gsrc, gdst) if gsrc < gdst else (gdst, gsrc)
+                first, last = (src, dst) if src < dst else (dst, src)
+
+                new_node1 = src_edge.split(first)
+                new_node2 = new_node1.out[0].split(last)
+
+                window_i = (gfirst, gfirst + self._window_length - 1)
+                window_j = (glast - (self._window_length - 1), glast)
+                transition_motion = self._generate_transition(window_i, window_j)
+
+                new_node1.add_edge(new_node2, transition_motion)
             else:
                 mid_src = src_edge.split(src)
                 mid_dst = dst_edge.split(dst)
-                mid_src.add_edge(mid_dst, None, [0])
+
+                window_i = (gsrc, gsrc + self._window_length - 1)
+                window_j = (gdst - (self._window_length - 1), gdst)
+                transition_motion = self._generate_transition(window_i, window_j)
+
+                mid_src.add_edge(mid_dst, transition_motion)
+
+            if minima is self._selected_local_minima[3]:
+                break
+
+        #self._graph_export_graphviz('pruned.gv')
 
         # Pruning graph finding strongest connected component for each motion
         # kosaraujo
@@ -637,9 +685,6 @@ class MotionGraph:
                             traverse_stack.insert(0, in_edge.src)    
                 cur_tag += 1
 
-        # TODO: Remove nodes from original motion graph
-
-        # Export: self._graph_export_graphviz('pruned.gv')
 
 if __name__ == "__main__":
     from skeleton import *

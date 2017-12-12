@@ -33,23 +33,19 @@ class MotionRender:
         Position = {"name": "in_Position", "location": 0}
         Normal = {"name": "in_Normal", "location": 1}
 
-    def __init__(self, skeleton: AnimatedSkeleton):
+    def __init__(self, skeleton=None):
         self._setup_render_matrices()
         self._setup_ligthing()
         self._create_shaders()
         self._create_mesh_data()
         self._create_gl_objects()
 
-        self._skeleton = skeleton
+        self._skeleton = None
         self._motion_cache = {}
 
-        # Forcing the skeleton to compute and cache frames
-        # TODO The caching should probably be done here)
-        for i in range(self._skeleton.frame_count):
-            beg = time.time()
-            self._skeleton.traverse(i, None)
-
+        self.add_motion(skeleton)
         self._uniforms = {}
+        self._character_color = None
 
     def set_render_matrices(self, view, project):
         self._view_matrix = view
@@ -70,7 +66,7 @@ class MotionRender:
         GL.glUniformMatrix4fv(self._uniforms['normal_mat_loc'], 1, GL.GL_FALSE, np.ascontiguousarray(glm.mat4().value))
         
         if ntype:
-            GL.glUniform4fv(self._uniforms['ambient_color_loc'], 1, np.ascontiguousarray(MotionRender.COLORS[ntype]))
+            GL.glUniform4fv(self._uniforms['ambient_color_loc'], 1, np.ascontiguousarray(self._character_color))
 
         GL.glBindVertexArray(self._vao)
 
@@ -80,7 +76,13 @@ class MotionRender:
         if ntype:
             GL.glUniform4fv(self._uniforms['ambient_color_loc'], 1, np.ascontiguousarray(self._ambient_color))
 
+    def set_color(self, color):
+        self._character_color = color
+
     def draw(self, frame):
+        if self._skeleton is None:
+            return
+
         frame = frame % self._skeleton.frame_count
 
         # TODO: remove these strings
@@ -119,6 +121,9 @@ class MotionRender:
         GL.glDeleteVertexArrays(1, self._vao)
         GL.glDeleteBuffers(1, self._vertex_bo)
         GL.glDeleteBuffers(1, self._normal_bo)
+
+    def add_motion(self, motion):
+        self._skeleton = motion
 
     def _setup_render_matrices(self):
         """It simply initializes model, view, and projection matrices"""

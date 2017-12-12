@@ -1,15 +1,20 @@
 from pyquaternion import Quaternion
 import math
 
-def quaternion_from_euler(alpha, beta, gamma):
-    ca = math.cos(alpha * 0.5)
-    cb = math.cos(beta  * 0.5)
-    cc = math.cos(gamma * 0.5)
-    sa = math.sin(alpha * 0.5)
-    sb = math.sin(beta  * 0.5)
-    sc = math.sin(gamma * 0.5)
+# pitch: y-axis
+# rool : x-axis
+# yaw  : z-axis
+#
+#
+def quaternion_from_euler(pitch, roll, yaw):
+    cy = math.cos(yaw * 0.5);
+    sy = math.sin(yaw * 0.5);
+    cr = math.cos(roll * 0.5);
+    sr = math.sin(roll * 0.5);
+    cp = math.cos(pitch * 0.5);
+    sp = math.sin(pitch * 0.5);
 
-    return Quaternion(ca * cb * cc - sa * cb * sc,
-                      ca * sb * sc - sa * sb * cc,
-                      ca * sb * cc + sa * sb * sc,
-                      sa * cb * cc + ca * cb * sc)
+    return Quaternion(cy * cr * cp + sy * sr * sp,
+                      cy * sr * cp - sy * cr * sp,
+                      cy * cr * sp + sy * sr * cp,
+                      sy * cr * cp - cy * sr * sp)
