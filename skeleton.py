@@ -154,6 +154,7 @@ class AnimatedSkeleton:
         # Same as internal format
         self._frames = frames
 
+
         def _process_data_rec(node):
             node._transform = self._compute_transform(node.offset, node.angles, node.position, node.rotation_order)
 
@@ -254,7 +255,7 @@ class AnimatedSkeleton:
             node = traverse_stack.pop(0)
             parent_transform = transform_stack.pop(0)
 
-            transform = parent_transform * node._transform
+            transform = parent_transform * self._compute_transform(node.offset, node.angles, node.position, node.rotation_order)
 
             if len(node.children) <= 1 and callback:
                 callback(node.ntype, node.name, transform, glm.length(node._length), node._rest_rot)
@@ -262,7 +263,6 @@ class AnimatedSkeleton:
             for child in node.children:
                 traverse_stack.insert(0, child)
                 transform_stack.insert(0, transform)
-
 
     def _find_type_bvh(self, name):
         for t, names in AnimatedSkeleton.BVH_JOINT_NAMES.items():

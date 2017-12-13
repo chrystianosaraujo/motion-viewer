@@ -33,6 +33,7 @@ class MotionViewWidget(QtOpenGL.QGLWidget):
         self._motion_render.clean_up()
 
     def initializeGL(self):
+        import ipdb;ipdb.set_trace()
         self._background_color = [0.0, 0.0, 0.0, 1.0]
         GL.glEnable(GL.GL_MULTISAMPLE);
 
@@ -87,9 +88,9 @@ class MotionViewWidget(QtOpenGL.QGLWidget):
         if event.key() in MotionViewWidget.CAMERA_CONTROL_KEYS:
             self._camera.on_key_up(event.key())
 
-    def add_motion(self, motion):
-        self._motion_render.add_motion(motion)
-        
+    def add_motion(self, motion, trans):
+        self._motion_render.add_motion(motion, trans)
+
     def set_current_frame(self, frame):
         self._frame = frame
 

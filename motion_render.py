@@ -41,6 +41,7 @@ class MotionRender:
         self._create_gl_objects()
 
         self._skeleton = None
+        self._skeleton_trans = None
         self._motion_cache = {}
 
         self.add_motion(skeleton)
@@ -48,7 +49,7 @@ class MotionRender:
         self._character_color = None
 
         self._debug_characters = []
-
+        
     def set_render_matrices(self, view, project):
         self._view_matrix = view
         self._proj_matrix = project
@@ -152,7 +153,7 @@ class MotionRender:
         GL.glUniform4fv(self._uniforms['specular_color_loc'], 1, np.ascontiguousarray(self._specular_color))
         GL.glUniform1f(self._uniforms['shininess_loc'], self._shininess)
 
-        self._skeleton.traverse(frame, self._on_draw_part)
+        self._skeleton.traverse(frame, self._on_draw_part, self._skeleton_trans)
 
         return
 
@@ -166,8 +167,9 @@ class MotionRender:
         GL.glDeleteBuffers(1, self._vertex_bo)
         GL.glDeleteBuffers(1, self._normal_bo)
 
-    def add_motion(self, motion):
+    def add_motion(self, motion, trans = glm.mat4()):
         self._skeleton = motion
+        self._skeleton_trans = trans
 
     def _setup_render_matrices(self):
         """It simply initializes model, view, and projection matrices"""

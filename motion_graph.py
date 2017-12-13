@@ -67,10 +67,12 @@ class MotionGraph:
             for iini, in_edge in enumerate(self.iin):
                 for outi, out_edge in enumerate(self.out):
                     last_in_positions = in_edge.motion.get_all_positions(in_edge.frames[-1])[0]
-                    first_out_positions = out_edge.motion.get_all_positions(in_edge.frames[0])[0]
+                    first_out_positions = out_edge.motion.get_all_positions(out_edge.frames[0])[0]
+
                     theta, tx, tz = compute_alignment(last_in_positions, first_out_positions)
-                    transform = glm.translate(glm.mat4(), glm.vec3(0.0, 0.0, 0.0))
-                    #transform = glm.rotate(transform, theta, glm.vec3(0.0, 1.0, 0.0))
+
+                    transform = glm.translate(glm.mat4(), glm.vec3(tx, 0.0, tz))
+                    transform = glm.rotate(transform, theta, glm.vec3(0.0, 1.0, 0.0))
                     self.out_transforms[iini, outi] = transform
 
     class Edge:
@@ -415,17 +417,23 @@ class MotionGraph:
             Returns a new window of frames that creates the transition from the
             window_i to window_j.
         """
-        #import ipdb; ipdb.set_trace()
+
         num_frames = window_i[1] - window_i[0] + 1
-        frame_i_positions = self._frames_pose_positions[window_i[0]]
-        frame_j_positions = self._frames_pose_positions[window_j[0]]
-        angle, tx, tz = self._compute_alignment_between_frames(frame_i_positions, frame_j_positions)
+        #frame_i_positions = self._frames_pose_positions[window_i[0]]
+        #frame_j_positions = self._frames_pose_positions[window_j[0]]
+
+        #angle, tx, tz = self._compute_alignment_between_frames(frame_i_positions, frame_j_positions)
+        angle, tx, tz = 0.0, 0.0, 0.0
 
         align_trans = np.array([tx, 0.0, tz])
         align_rot   = Quaternion(axis=[0.0, 1.0, 0.0], radians=angle)
 
         frames_i = self._get_motion_window_as_hierarchical_poses(*window_i)
         frames_j = self._get_motion_window_as_hierarchical_poses(*window_j)
+
+        diff = frames_i[0].position - frames_j[0].position
+        tx, _, tz = diff
+        angle = 0.0
 
         frames_j = copy.deepcopy(frames_j)
         blended_frames = copy.deepcopy(frames_i)
@@ -435,8 +443,6 @@ class MotionGraph:
             a_p = 2 * math.pow((p + 1 - 1) / (num_frames - 1), 3) -\
                   3 * math.pow((p + 1 - 1) / (num_frames - 1), 2) + 1
 
-            #import ipdb;ipdb.set_trace()
-        
             pose_i, pose_j, pose_b = poses
 
             # Align pose_j in respect to pose_i
@@ -448,10 +454,15 @@ class MotionGraph:
             aligned_root = root_j_quat * align_rot
 
             yaw, pitch, roll = aligned_root.yaw_pitch_roll
-            pose_j.angles = (roll, pitch, yaw)
+            #pose_j.angles = (roll, pitch, yaw)
 
             # Linear interpolates the root position
             pose_b.position = np.add(a_p * pose_i.position, (1 - a_p) * pose_j.position)
+
+            print(f"Pose: {p}  a_p: {a_p}")
+            print(f"    position_i: {pose_i.position}")
+            print(f"    position_j: {pose_j.position}")
+            print(f"    position_b: {pose_b.position}")
 
             # Spherical interpolates all joints angles
             stack_nodes = [(pose_i, pose_j, pose_b)]
@@ -459,16 +470,22 @@ class MotionGraph:
                 poses = stack_nodes.pop()
                 pose_i, pose_j, pose_b = poses
 
-                roll, pitch, yaw = pose_i.angles
-                quat_i = quaternion_from_euler(pitch, roll, yaw)
+                #roll, pitch, yaw = pose_i.angles
+                #quat_i = quaternion_from_euler(pitch, roll, yaw)
 
-                roll, pitch, yaw = pose_j.angles
-                quat_j = quaternion_from_euler(pitch, roll, yaw)
-                blended_joint = Quaternion.slerp(quat_i, quat_j, 1 - a_p)
+                #roll, pitch, yaw = pose_j.angles
+                #quat_j = quaternion_from_euler(pitch, roll, yaw)
+                #blended_joint = Quaternion.slerp(quat_i, quat_j, 1 - a_p)
 
-                yaw, pitch, roll = blended_joint.yaw_pitch_roll
-                pose_b.angles = (roll, pitch, yaw)
-                
+                #yaw, pitch, roll = blended_joint.yaw_pitch_roll
+                #pose_b.angles = (roll, pitch, yaw)
+                pose_b.angles = np.add(a_p * pose_i.angles, (1.0 - a_p) * pose_j.angles)
+                #pose_b.angles = np.add(0 * pose_i.angles, (0.0) * pose_j.angles)
+                print(f"    angle_i: {pose_i.angles}")
+                print(f"    angle_j: {pose_j.angles}")
+                print(f"    angle_b: {pose_b.angles}")
+                print("\n")
+
                 for nodes in zip(pose_i.children, pose_j.children, pose_b.children):
                     stack_nodes.insert(0, nodes)
 
@@ -658,7 +675,7 @@ class MotionGraph:
             if minima is self._selected_local_minima[3]:
                 break
 
-        self._graph_export_graphviz('pruned.gv')
+        #self._graph_export_graphviz('pruned.gv')
 
         # Pruning graph finding strongest connected component for each motion
         # kosaraujo
