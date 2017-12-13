@@ -73,7 +73,7 @@ class MotionViewerApp:
             return
 
         if self._current_edge is None:
-            self._current_edge, self._current_edge_trans = self._motion_graph.begin_edge(1)
+            self._current_edge, self._current_edge_trans = self._motion_graph.begin_edge(0)
             self._beg_edge = self._current_edge
             print(f'{self._edge_counter} : {self._current_edge.frames}')
 
@@ -81,29 +81,32 @@ class MotionViewerApp:
             glm.vec4(1.0, 0.0, 0.0, 1.0),
             glm.vec4(0.0, 1.0, 0.0, 1.0),
             glm.vec4(0.0, 0.0, 1.0, 1.0),
+            glm.vec4(0.0, 1.0, 1.0, 1.0),
+            glm.vec4(1.0, 0.0, 1.0, 1.0),
         ]
 
-        self._ui.scene_widget._motion_render.set_color(color[self._edge_counter])
+        path = [0, 0, 0, 0, 1, 0, 0, 0]#, 0, 0, 0, 0]
+
+        self._ui.scene_widget._motion_render.set_color(color[self._edge_counter % len(color)])
 
         self._ui.scene_widget.add_motion(self._current_edge.motion, self._current_edge_trans)
         self._ui.scene_widget.set_current_frame(self._current_edge.frames[self._current_frame])
         self._ui.scene_widget.updateGL()
 
         print("Frame", self._current_frame, "CurrentEdge", self._edge_counter)
-        self._current_frame += 1
+        self._current_frame += 1        
 
         if not self._current_edge.is_valid_frame(self._current_frame):
-            if self._edge_counter >= 2:
-                self._current_edge, self._current_edge_trans = self._motion_graph.begin_edge(1)
+            if self._edge_counter >= len(path) - 1:
+                self._current_edge, self._current_edge_trans = self._motion_graph.begin_edge(0)
                 self._edge_counter = 0
                 self._current_frame = 0
                 print(f'{self._edge_counter} : {self._current_edge.frames}')
             else:
                 try:
-                    self._current_edge, self._current_edge_trans = self._motion_graph.next_edge(self._current_edge)
+                    self._current_edge, self._current_edge_trans = self._motion_graph.next_edge(self._current_edge, path[self._edge_counter], self._current_edge_trans)
                 except IndexError:
-                    import ipdb;
-                    ipdb.set_trace()
+                    pass
                 self._current_frame = 0
                 self._edge_counter += 1
                 print(f'{self._edge_counter} : {self._current_edge.frames}')

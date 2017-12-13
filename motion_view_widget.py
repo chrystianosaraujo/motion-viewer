@@ -33,7 +33,6 @@ class MotionViewWidget(QtOpenGL.QGLWidget):
         self._motion_render.clean_up()
 
     def initializeGL(self):
-        import ipdb;ipdb.set_trace()
         self._background_color = [0.0, 0.0, 0.0, 1.0]
         GL.glEnable(GL.GL_MULTISAMPLE);
 

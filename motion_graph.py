@@ -62,6 +62,7 @@ class MotionGraph:
             dst.iin.append(edge)
 
         def finalize(self, compute_alignment):
+            print(f'Finalizing node {self.label}')
             self.out_transforms = np.empty((len(self.iin), len(self.out)), dtype=object)
 
             for iini, in_edge in enumerate(self.iin):
@@ -69,7 +70,10 @@ class MotionGraph:
                     last_in_positions = in_edge.motion.get_all_positions(in_edge.frames[-1])[0]
                     first_out_positions = out_edge.motion.get_all_positions(out_edge.frames[0])[0]
 
-                    theta, tx, tz = compute_alignment(last_in_positions, first_out_positions)
+                    #theta, tx, tz = compute_alignment(last_in_positions, first_out_positions)
+                    diff = last_in_positions[0] - first_out_positions[0]
+                    tx, _, tz = diff
+                    theta = 0.0 
 
                     transform = glm.translate(glm.mat4(), glm.vec3(tx, 0.0, tz))
                     transform = glm.rotate(transform, theta, glm.vec3(0.0, 1.0, 0.0))
@@ -124,7 +128,6 @@ class MotionGraph:
             return self._is_transition
 
         def is_valid_frame(self, frame):
-            #import ipdb;ipdb.set_trace()
             return frame >= 0 and frame < len(self.frames)
 
 
@@ -330,13 +333,13 @@ class MotionGraph:
     def begin_edge(self, motion_idx):
         return (self._nodes[motion_idx].out[0], glm.mat4())
 
-    def next_edge(self, edge):
+    def next_edge(self, edge, children_idx, current_transform):
         dst = edge.dst
         in_edge_idx = dst.iin.index(edge)
-        for ii, out_edge in enumerate(dst.out):
-            if out_edge.is_transition():
-                return (out_edge, dst.out_transforms[in_edge_idx, ii])
-        return (dst.out[0], dst.out_transforms[in_edge_idx, 0])
+        # for ii, out_edge in enumerate(dst.out):
+        #     if out_edge.is_transition():
+        #         return (out_edge, dst.out_transforms[in_edge_idx, ii])
+        return (dst.out[children_idx], current_transform * dst.out_transforms[in_edge_idx, children_idx])
 
     def _difference_between_frames(self, i, j):
         window_i = self._motion_window(i, i + self._window_length - 1)
@@ -419,17 +422,25 @@ class MotionGraph:
         """
 
         num_frames = window_i[1] - window_i[0] + 1
-        #frame_i_positions = self._frames_pose_positions[window_i[0]]
-        #frame_j_positions = self._frames_pose_positions[window_j[0]]
-
-        #angle, tx, tz = self._compute_alignment_between_frames(frame_i_positions, frame_j_positions)
-        angle, tx, tz = 0.0, 0.0, 0.0
-
-        align_trans = np.array([tx, 0.0, tz])
-        align_rot   = Quaternion(axis=[0.0, 1.0, 0.0], radians=angle)
 
         frames_i = self._get_motion_window_as_hierarchical_poses(*window_i)
         frames_j = self._get_motion_window_as_hierarchical_poses(*window_j)
+
+        #frame_i_positions = self._frames_pose_positions[window_i[0]]
+        #frame_j_positions = self._frames_pose_positions[window_j[0]]
+        motion_i = self._motion_data_containing_frame(window_i[0])
+        motion_j = self._motion_data_containing_frame(window_j[0])
+        motion_frame_i = self._motion_frame_number(motion_i, window_i[0])
+        motion_frame_j = self._motion_frame_number(motion_j, window_j[0])
+        frame_i_positions = motion_i.get_all_positions(motion_frame_i)[0]
+        frame_j_positions = motion_j.get_all_positions(motion_frame_j)[0]
+
+        angle, tx, tz = self._compute_alignment_between_frames(frame_i_positions, frame_j_positions)
+        _, tx, tz = 0.0, 0.0, 0.0
+        #angle = 0.0
+
+        align_trans = np.array([tx, 0.0, tz])
+        align_rot   = Quaternion(axis=[0.0, 1.0, 0.0], radians=angle)
 
         diff = frames_i[0].position - frames_j[0].position
         tx, _, tz = diff
@@ -459,11 +470,6 @@ class MotionGraph:
             # Linear interpolates the root position
             pose_b.position = np.add(a_p * pose_i.position, (1 - a_p) * pose_j.position)
 
-            print(f"Pose: {p}  a_p: {a_p}")
-            print(f"    position_i: {pose_i.position}")
-            print(f"    position_j: {pose_j.position}")
-            print(f"    position_b: {pose_b.position}")
-
             # Spherical interpolates all joints angles
             stack_nodes = [(pose_i, pose_j, pose_b)]
             while stack_nodes:
@@ -481,10 +487,6 @@ class MotionGraph:
                 #pose_b.angles = (roll, pitch, yaw)
                 pose_b.angles = np.add(a_p * pose_i.angles, (1.0 - a_p) * pose_j.angles)
                 #pose_b.angles = np.add(0 * pose_i.angles, (0.0) * pose_j.angles)
-                print(f"    angle_i: {pose_i.angles}")
-                print(f"    angle_j: {pose_j.angles}")
-                print(f"    angle_b: {pose_b.angles}")
-                print("\n")
 
                 for nodes in zip(pose_i.children, pose_j.children, pose_b.children):
                     stack_nodes.insert(0, nodes)
@@ -635,9 +637,6 @@ class MotionGraph:
             src_motion = self._motion_data_containing_frame(gsrc)
             dst_motion = self._motion_data_containing_frame(gdst)
 
-            if minima is not self._selected_local_minima[3]:
-                continue
-
             # Getting frame idx relative to motion path
             src = self._motion_frame_number(src_motion, gsrc)
             dst = self._motion_frame_number(dst_motion, gdst)
@@ -672,10 +671,8 @@ class MotionGraph:
 
                 mid_src.add_edge(mid_dst, transition_motion)
 
-            if minima is self._selected_local_minima[3]:
-                break
-
-        #self._graph_export_graphviz('pruned.gv')
+        print(f'Inserted {len(self._selected_local_minima)} local minimas')
+        # self._graph_export_graphviz('pruned.gv')
 
         # Pruning graph finding strongest connected component for each motion
         # kosaraujo
@@ -717,13 +714,21 @@ class MotionGraph:
                             traverse_stack.insert(0, in_edge.src)    
                 cur_tag += 1
 
+        print('Pruned motion graph')
+
+        visited = {}
         def finalize_rec(node):
+            if str(id(node)) in visited:
+                return
+            visited[str(id(node))] = True
             node.finalize(self._compute_alignment_between_frames)
             for out_edge in node.out:
                 finalize_rec(out_edge.dst)
 
         for node in self._nodes:
             finalize_rec(node)
+
+        print('Finished generating motion graph')
 
 if __name__ == "__main__":
     from skeleton import *
