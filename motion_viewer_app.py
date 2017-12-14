@@ -11,6 +11,7 @@ from motion_graph import MotionGraph
 from motion_graph_player import MotionGraphPlayer
 
 MOTION_GRAPH_WINDOW_SIZE = 30
+GENERATE_GROUNDTRUTH_MOTION_GRAPH = False
 
 class MotionViewerApp:
     def __init__(self):
@@ -47,8 +48,15 @@ class MotionViewerApp:
                 motion = AnimatedSkeleton()
                 motion.load_from_file(fn)
                 self._motion_graph.add_motion(motion)
-            self._motion_graph.build()
+
+            def progress_cb(factor):
+                print("[DEBUG] Building MotionGraph ({:.2f})%".format(factor * 100.0))
+
+            self._motion_graph.build(progress_cb)
             self._motion_graph.serialize()
+
+        if GENERATE_GROUNDTRUTH_MOTION_GRAPH:
+            self._generate_groundtruth_data()
 
         self._ui.graph_widget.load_motion_graph(self._motion_graph)
         self._motion_graph_player.motion_graph = self._motion_graph
