@@ -10,6 +10,7 @@ from skeleton import AnimatedSkeleton
 from motion_graph import MotionGraph
 
 MOTION_GRAPH_WINDOW_SIZE = 30
+GENERATE_GROUNDTRUTH_MOTION_GRAPH = False
 
 class MotionViewerApp:
     def __init__(self):
@@ -51,8 +52,15 @@ class MotionViewerApp:
                 motion = AnimatedSkeleton()
                 motion.load_from_file(fn)
                 self._motion_graph.add_motion(motion)
-            self._motion_graph.build()
+
+            def progress_cb(factor):
+                print("[DEBUG] Building MotionGraph ({:.2f})%".format(factor * 100.0))
+
+            self._motion_graph.build(progress_cb)
             self._motion_graph.serialize()
+
+        if GENERATE_GROUNDTRUTH_MOTION_GRAPH:
+            self._generate_groundtruth_data()
 
         #mo1, t1 = self._motion_graph.begin_edge(1)
         #self._ui.scene_widget._motion_render._debug_characters.append((mo1, t1))
@@ -110,7 +118,16 @@ class MotionViewerApp:
                 self._current_frame = 0
                 self._edge_counter += 1
                 print(f'{self._edge_counter} : {self._current_edge.frames}')
-                
+
+    def _generate_groundtruth_data(self):
+        extension = ".tdata"
+        output_dir = ".//test//"
+        similarity_mat_fn = os.path.join(output_dir, "similarity_matrix" + extension)
+        motion_graph_fn   = os.path.join(output_dir, "motion_graph" + extension)
+
+        pickle.dump(self._motion_graph._similarity_mat, open(similarity_mat_fn, "wb" ))
+        pickle.dump(self._motion_graph._nodes         , open(motion_graph_fn, "wb" ))
+
 if __name__ == "__main__":
     app = MotionViewerApp()
     app.run()
