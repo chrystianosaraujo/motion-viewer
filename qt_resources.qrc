@@ -1,0 +1,7 @@
+<!DOCTYPE RCC><RCC version="1.0">
+<qresource>
+	<file>graph_visualizer/test.html</file>
+	<file>graph_visualizer/vis.min.js</file>
+	<file>graph_visualizer/vis-network.min.css</file>
+</qresource>
+</RCC>

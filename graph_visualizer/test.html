@@ -1,0 +1,117 @@
+<html>
+<head>
+	<script type="text/javascript" src="vis.min.js"></script>
+	<link href="vis-network.min.css" rel="stylesheet" type="text/css">
+
+	<style type="text/css">
+	    #mynetwork {
+	        width: 100%;
+	        height: 100%;
+	    	background-color: #191919;
+	    }
+	</style>
+
+</head>
+
+<body>
+	<script src="qrc:///qtwebchannel/qwebchannel.js"></script>
+<div id="mynetwork"><div class="vis-network" style="position: relative; overflow: hidden; touch-action: pan-y; -moz-user-select: none; width: 100%; height: 100%;" tabindex="900"><canvas style="position: relative; touch-action: none; -moz-user-select: none; width: 100%; height: 100%;"></canvas></div></div>
+	<script>
+		function init(){
+			window._qchannel = new QWebChannel(qt.webChannelTransport, function(channel) {
+				window._page = channel.objects.page
+				_page.log('Initialized Graph Visualizer')
+				_page.on_channel_ready()
+			})
+		}
+
+		function load_motion_graph(nodes_json, edges_json) {
+			_page.log('Loading Motion Graph Visualization')
+			let mg_nodes = JSON.parse(nodes_json)
+			let mg_edges = JSON.parse(edges_json)
+
+			var graph_nodes = []
+			var graph_edges = []
+
+			window.motion_colors = ['#FB7E81', '#7BE141', '#6E6EFD']
+
+			let next_id = 0
+			window.name2id = { }
+
+			for (let node of mg_nodes) {
+				graph_nodes.push({
+					id: next_id,
+					'label': node.name,
+					'color': '#FFA807',
+					'font': { color: 'white'}
+				})
+
+				name2id[node.id] = next_id
+				next_id += 1
+			}
+
+			for (let edge of mg_edges) {
+				_page.log(name2id[edge.source] + ' -> ' + name2id[edge.target])
+				graph_edges.push({
+					'id': edge.id,
+					'from': name2id[edge.source],
+					'to': name2id[edge.target],
+					'arrows': 'to',
+					'value': 1,
+					'color': { color: motion_colors[edge.motion_idx] },
+					'motion_idx': edge.motion_idx
+				})
+			}
+
+			window.nodes = new vis.DataSet(graph_nodes)
+			window.edges = new vis.DataSet(graph_edges)
+
+            // create a network
+            var container = document.getElementById('mynetwork');
+            var data = {
+                nodes: nodes,
+                edges: edges
+            };
+            var options = {
+                nodes: {
+                    shape: 'dot',
+                    size: 16,
+                },
+                physics: {
+                    forceAtlas2Based: {
+                        gravitationalConstant: -26,
+                        centralGravity: 0.005,
+                        springLength: 230,
+                        springConstant: 0.18
+                    },
+                    maxVelocity: 146,
+                    solver: 'forceAtlas2Based',
+                    timestep: 0.35,
+                    stabilization: {iterations: 150}
+                }
+            };
+            window.network = new vis.Network(container, data, options);
+
+            window.prev_edgeid = null
+		}
+
+		// Current edge being walked
+		function set_active_edge(edgeid) {
+			var edge = edges.get(edgeid)
+			edge.color.color = '#ffffff'
+			edges.update(edge)
+
+			if (prev_edgeid) {
+				let prev_edge = edges.get(prev_edgeid)
+				prev_edge.color.color = motion_colors[prev_edge.motion_idx]
+				edges.update(prev_edge)
+			}
+
+			prev_edgeid = edgeid
+		}
+		
+	</script>
+
+</body>
+
+</html>

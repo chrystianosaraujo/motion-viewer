@@ -330,15 +330,21 @@ class MotionGraph:
         np.savetxt(fn, self._similarity_mat, fmt='%1.4f')
 
 
+    def get_root_nodes(self):
+        return self._nodes
+
+
     def begin_edge(self, motion_idx):
         return (self._nodes[motion_idx].out[0], glm.mat4())
 
     def next_edge(self, edge, children_idx, current_transform):
         dst = edge.dst
-        in_edge_idx = dst.iin.index(edge)
-        # for ii, out_edge in enumerate(dst.out):
-        #     if out_edge.is_transition():
-        #         return (out_edge, dst.out_transforms[in_edge_idx, ii])
+
+        # Can't go anywhere, restarting current motion
+        if children_idx >= len(dst.out):
+            return self.begin_edge(self._motions.index(dst.motion))
+
+        in_edge_idx = dst.iin.index(edge)        
         return (dst.out[children_idx], current_transform * dst.out_transforms[in_edge_idx, children_idx])
 
     def _difference_between_frames(self, i, j):
