@@ -25,7 +25,7 @@ class EnvironmentRender:
             self._shader_program.bind_attribute(attrib.value["location"], attrib.value["name"])
         self._shader_program.compile()
 
-        vertices, normals, texcoords = mesh.create_grid_mesh(300, 300, 50)
+        vertices, normals, texcoords = mesh.create_grid_mesh(1000, 1000, 100)
         self._vertices = np.asarray(vertices, dtype=np.float32)
         self._normals = np.asarray(normals, dtype=np.float32)
         self._texcoords = np.asarray(texcoords, dtype=np.float32)
