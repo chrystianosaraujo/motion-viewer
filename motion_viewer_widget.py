@@ -9,9 +9,6 @@ from camera import FirstPersonCamera
 from environment_render import EnvironmentRender
 
 class MotionViewWidget(QtOpenGL.QGLWidget):
-    CAMERA_CONTROL_KEYS = (Qt.Key_A, Qt.Key_S,
-                           Qt.Key_D, Qt.Key_W)
-
     def __init__(self, parent):
         format = QtOpenGL.QGLFormat()
         format.setSampleBuffers(True)
@@ -28,6 +25,7 @@ class MotionViewWidget(QtOpenGL.QGLWidget):
         self._saved_mouse_pos = None
         self._last_mouse_pos = None
         self._camera_enabled = False
+        self._last_mod_state = 0x0
 
         self.setFocusPolicy(Qt.StrongFocus)
         self.setMouseTracking(True)
@@ -78,8 +76,9 @@ class MotionViewWidget(QtOpenGL.QGLWidget):
         if event.isAutoRepeat():
             return
 
-        if event.key() in MotionViewWidget.CAMERA_CONTROL_KEYS:
-            self._camera.on_key_down(event.key())
+        if event.key() in self._camera.controls() or event.modifiers() & Qt.ShiftModifier:
+            self._camera.on_key_down(event.key(), event.modifiers(), self._last_mod_state)
+        self._last_mod_state = event.modifiers()
 
     def keyReleaseEvent(self, event):
         # It is needed since QT launches Press and Release events repeatedly when
@@ -87,8 +86,8 @@ class MotionViewWidget(QtOpenGL.QGLWidget):
         if event.isAutoRepeat():
             return
 
-        if event.key() in MotionViewWidget.CAMERA_CONTROL_KEYS:
-            self._camera.on_key_up(event.key())
+        if event.key() in self._camera.controls() or self._last_mod_state & Qt.ShiftModifier:
+            self._camera.on_key_up(event.key(), event.modifiers(), self._last_mod_state)
 
     def add_motion(self, motion, trans):
         self._motion_render.add_motion(motion, trans)

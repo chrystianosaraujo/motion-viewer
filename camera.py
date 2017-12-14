@@ -1,6 +1,7 @@
 import glm
 import math
 from PyQt5.QtCore import Qt
+from PyQt5 import QtGui
 
 class FirstPersonCamera:
     def __init__(self, aspect_ratio):
@@ -12,7 +13,10 @@ class FirstPersonCamera:
         self._speed = 5  # units per second
         self._mouse_sensibility = 0.1
 
-    def on_key_down(self, key):
+    def controls(self):
+        return (Qt.Key_A, Qt.Key_S, Qt.Key_D, Qt.Key_W, Qt.Key_Space)
+
+    def on_key_down(self, key, modifiers, last_modifiers):
         if key == Qt.Key_W:
             self._velocity.x += 1
         if key == Qt.Key_S:
@@ -23,10 +27,10 @@ class FirstPersonCamera:
             self._velocity.y += 1
         if key == Qt.Key_Space:
             self._velocity.z += 1
-        # if key == Qt.Key_LSHIFT:
-        #     self._velocity.z -= 1
+        if modifiers & Qt.ShiftModifier:
+            self._velocity.z -= 1
 
-    def on_key_up(self, key):
+    def on_key_up(self, key, modifiers, last_modifiers):
         if key == Qt.Key_W:
             self._velocity.x -= 1
         if key == Qt.Key_S:
@@ -37,8 +41,8 @@ class FirstPersonCamera:
             self._velocity.y -= 1
         if key == Qt.Key_Space:
             self._velocity.z -= 1
-        # if key == Qt.Key_LSHIFT:
-        #     self._velocity.z += 1
+        if not (modifiers & Qt.ShiftModifier) and (last_modifiers & Qt.ShiftModifier):
+            self._velocity.z += 1
 
     def on_mouse_move(self, dx, dy):
         yaw_axis = glm.vec3(0.0, 1.0, 0.0)
