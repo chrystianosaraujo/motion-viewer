@@ -86,7 +86,7 @@ class ShaderProgram:
             raise RuntimeError("Error while trying to call bind_attribute "\
                                "for an already compiled shader program.""")
 
-        self._attributes[location] = "attrib_name"
+        self._attributes[location] = attrib_name
 
     def attribute_location(self, attrib_name):
         """Returns the location related to the given vertex attribute name. This function should

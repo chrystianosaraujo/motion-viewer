@@ -13,7 +13,10 @@ class MotionViewWidget(QtOpenGL.QGLWidget):
                            Qt.Key_D, Qt.Key_W)
 
     def __init__(self, parent):
-        QtOpenGL.QGLWidget.__init__(self, parent)
+        format = QtOpenGL.QGLFormat()
+        format.setSampleBuffers(True)
+        format.setSamples(4)
+        QtOpenGL.QGLWidget.__init__(self, format, parent)
 
         self._frame = 0
         self._camera = FirstPersonCamera(self.width() / self.height())

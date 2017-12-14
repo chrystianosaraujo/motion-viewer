@@ -49,3 +49,36 @@ def create_cube_mesh():
         all_vertices_normal.extend(normal * 3)
 
     return all_faces_vertices, all_vertices_normal
+
+
+def create_grid_mesh(width, height, divisions):
+    cells_x = width / divisions
+    cells_z = height / divisions
+
+    vertices = []
+    normals = []
+    texcoords = []
+
+    start_z = -height / 2
+    for z in range(divisions):
+        start_x = -width / 2
+        for x in range(divisions):
+            v0 = [start_x, 0.0, start_z]
+            v1 = [start_x + cells_x, 0.0, start_z]
+            v2 = [start_x + cells_x, 0.0, start_z + cells_z]
+            v3 = [start_x, 0.0, start_z + cells_z]
+
+            t0 = [0.0, 0.0]
+            t1 = [1.0, 0.0]
+            t2 = [1.0, 1.0]
+            t3 = [0.0, 1.0]
+
+            vertices.extend(v0 + v1 + v3 + v1 + v2 + v3)
+            texcoords.extend(t0 + t1 + t3 + t1 + t2 + t3)
+
+            n = [0.0, 1.0, 0.0]
+            normals += n * 6
+            start_x += cells_x
+        start_z += cells_z
+
+    return vertices, normals, texcoords
