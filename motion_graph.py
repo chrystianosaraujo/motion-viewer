@@ -145,13 +145,13 @@ class MotionGraph:
         """
         self._set_progress_cb(progress_cb)
 
-        pr = debugger.start_profiler()
+        # pr = debugger.start_profiler()
 
         self._build_similarity_matrix()
         self._find_local_minima()
         self._generate_graph()
 
-        debugger.finish_profiler(pr)
+        # debugger.finish_profiler(pr)
 
         self._set_progress_cb(None)
 
@@ -407,8 +407,6 @@ class MotionGraph:
         frames_i = self._get_motion_window_as_hierarchical_poses(*window_i)
         frames_j = self._get_motion_window_as_hierarchical_poses(*window_j)
 
-        #frame_i_positions = self._frames_pose_positions[window_i[0]]
-        #frame_j_positions = self._frames_pose_positions[window_j[0]]
         motion_i = self._motion_data_containing_frame(window_i[0])
         motion_j = self._motion_data_containing_frame(window_j[0])
         motion_frame_i = self._motion_frame_number(motion_i, window_i[0])
@@ -416,16 +414,19 @@ class MotionGraph:
         frame_i_positions = motion_i.get_frames_positions(motion_frame_i)
         frame_j_positions = motion_j.get_frames_positions(motion_frame_j)
 
-        angle, tx, tz = self._compute_alignment_between_frames(frame_i_positions, frame_j_positions)
-        _, tx, tz = 0.0, 0.0, 0.0
-        #angle = 0.0
+        diff = frames_i[0].position - frames_j[0].position
+        tx, _, tz = diff
+
+        dir_i = frames_i[-1].position - frames_i[0].position
+        dir_j = frames_j[-1].position - frames_i[0].position
+        dir_i[1] = 0.0
+        dir_j[1] = 0.0
+        dir_i_len = np.linalg.norm(dir_i)
+        dir_j_len = np.linalg.norm(dir_j)
+        angle = math.acos(np.dot(dir_i / dir_i_len, dir_j / dir_j_len))
 
         align_trans = np.array([tx, 0.0, tz])
         align_rot   = Quaternion(axis=[0.0, 1.0, 0.0], radians=angle)
-
-        diff = frames_i[0].position - frames_j[0].position
-        tx, _, tz = diff
-        angle = 0.0
 
         frames_j = copy.deepcopy(frames_j)
         blended_frames = copy.deepcopy(frames_i)
@@ -438,7 +439,7 @@ class MotionGraph:
             pose_i, pose_j, pose_b = poses
 
             # Align pose_j in respect to pose_i
-            pose_j.position = np.add(pose_j.position, np.array([tx, 0.0, tz]));
+            pose_j.position = np.add(pose_j.position, align_trans)
             pose_j.offset   = np.array([0.0, 0.0, 0.0])
 
             roll, pitch, yaw = pose_j.angles
@@ -704,7 +705,6 @@ class MotionGraph:
             tags = all_tags[ii]
 
             # Counting components
-            import ipdb; ipdb.set_trace()
             component_nodes = {}
             for node, component in tags[0].items():
                 if component not in component_nodes:

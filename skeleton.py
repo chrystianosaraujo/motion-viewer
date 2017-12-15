@@ -369,6 +369,7 @@ class AnimatedSkeleton:
         # Initializes pose angles dimension
         self._pose_joints_dims = len(self._all_joint_angles) // \
                                  len(self._frames)
+        self._all_joint_angles = np.array(self._all_joint_angles)
 
     def _populate_positions_cache(self):
         self._all_positions = []
@@ -388,3 +389,5 @@ class AnimatedSkeleton:
         # Initializes pose angles dimension
         self._pose_positions_dims = len(self._all_positions) // \
                                     len(self._frames)
+
+        self._all_positions = np.array(self._all_positions)

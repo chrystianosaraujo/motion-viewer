@@ -56,7 +56,7 @@ class FirstPersonCamera:
         self._direction = (glm.rotate(glm.mat4(1.0), pitch_angle, pitch_axis) * glm.vec4(self._direction, 1.0)).xyz
 
     def on_resize(self, aspect_ratio):
-        self._projection = glm.perspective(45.0, aspect_ratio, 0.001, 1000.0)
+        self._projection = glm.perspective(45.0, aspect_ratio, 0.1, 1000.0)
 
     def update(self, ms):  # Add
         up = glm.vec3(0.0, 1.0, 0.0)

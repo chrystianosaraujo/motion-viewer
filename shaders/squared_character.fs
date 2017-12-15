@@ -24,7 +24,7 @@ void main(void)
 
   vec3 surfaceToLight = normalize(lightPos - fragPosition);
 
-  float brightness = dot(normal, surfaceToLight) / (length(surfaceToLight) * length(normal));
+  float brightness = dot(normal, surfaceToLight);
   brightness = clamp(brightness, 0, 1);
 
   fs_out_color = (brightness * characterColor + ambientColor);
