@@ -9,12 +9,11 @@ import glm
 import math
 import copy
 import pickle
+import debugger
 
 from functools import reduce
-import multiprocessing
-import threading
-import logging
 
+INVALID_DISTANCE = float("nan")
 LOCAL_MINIMA_TOLERANCE = 1E-2
 SAME_MOTION_SIMILARITY_TOL = (0.1, 0.3)
 DIFF_MOTION_SIMILARITY_TOL = (0.0, 0.3)
@@ -25,19 +24,6 @@ def normalize_np_matrix(mat):
 
     elem_wise_operation = np.vectorize(lambda x: 1.0 if x != x else ((x - min_value) / (max_value - min_value)))
     return elem_wise_operation(mat)
-
-
-def from_matrix_to_image(mat, normalize=False, border=(0, 0)):
-    if normalize:
-        mat = normalize_np_matrix(mat, border)
-
-    # im = Image.new("RGB", mat.shape)
-    # data = [(int(mat[x, y] * 255), int(mat[x, y] * 255), int(mat[x, y] * 255)) for y in range(im.size[1]) for x in range(im.size[0])]
-    # im.putdata(data)
-
-    # return im
-    return Image.fromarray((mat * 255).astype('uint8'), "L")
-
 
 def gradient_magnitude(gx, gy):
     out = np.empty(gx.shape, dtype=np.float32)
@@ -67,8 +53,8 @@ class MotionGraph:
 
             for iini, in_edge in enumerate(self.iin):
                 for outi, out_edge in enumerate(self.out):
-                    last_in_positions = in_edge.motion.get_all_positions(in_edge.frames[-1])[0]
-                    first_out_positions = out_edge.motion.get_all_positions(out_edge.frames[0])[0]
+                    last_in_positions = in_edge.motion.get_frames_positions(in_edge.frames[-1])
+                    first_out_positions = out_edge.motion.get_frames_positions(out_edge.frames[0])
 
                     #theta, tx, tz = compute_alignment(last_in_positions, first_out_positions)
                     diff = last_in_positions[0] - first_out_positions[0]
@@ -131,8 +117,6 @@ class MotionGraph:
             return frame >= 0 and frame < len(self.frames)
 
 
-    INVALID_DISTANCE = float("nan")
-
     def __init__(self, window_length):
         self._motions = []
         self._similarity_mat = None
@@ -155,42 +139,33 @@ class MotionGraph:
 
         self._motions.append(motion)
 
-    def build(self):
+    def build(self, progress_cb):
         """ This function creates the motion graph using all motion data
         previously added by calling the function add_motion.
-
-        Notes:
-            TODO: Handle more than one motion:
         """
-        # import cProfile
-        # import pstats
-        # import io
-        # pr = cProfile.Profile()
-        # pr.enable()
+        self._set_progress_cb(progress_cb)
+
+        pr = debugger.start_profiler()
 
         self._build_similarity_matrix()
         self._find_local_minima()
         self._generate_graph()
 
-        # pr.disable()
-        # s = io.StringIO()
-        # sortby = 'time'
-        # ps = pstats.Stats(pr, stream=s).sort_stats(sortby)
-        # ps.print_stats()
-        # print(s.getvalue())
+        debugger.finish_profiler(pr)
+
+        self._set_progress_cb(None)
 
     def serialize(self):
+        # TODO(caraujo): remove this constant string
         return pickle.dump(self, open("cache.p", "wb" ))
 
     def _build_similarity_matrix(self):
-        self._build_list_of_poses()
-
         num_frames = self.num_frames
         self._similarity_mat = np.empty([num_frames, num_frames], dtype=np.float32)
 
         # Compute the distance between each pair of frame
         for i in range(num_frames):
-            print("[DEBUG] (Build MotionGraph {}/{} - ({:.3f})%".format(i, num_frames - 1, i / (num_frames - 1) * 100))
+            self._notify_progress(i / (num_frames - 1))
             for j in range(num_frames):
                 self._similarity_mat[i, j] = self._difference_between_frames(i, j)
 
@@ -291,12 +266,10 @@ class MotionGraph:
 
     @property
     def num_frames(self):
-        # summation_func = lambda x, y: len(x) + len(y)
-        # return reduce(summation_func, self._motions, [])
-        count = 0
-        for motion in self._motions:
-            count += len(motion)
-        return count
+        def summation_func(x, y):
+            return x + len(y)
+
+        return reduce(summation_func, self._motions, 0)
 
     def get_similarity_matrix_as_image(self):
         """ Builds a greyscale image using the similarity matrix data.
@@ -330,15 +303,21 @@ class MotionGraph:
         np.savetxt(fn, self._similarity_mat, fmt='%1.4f')
 
 
+    def get_root_nodes(self):
+        return self._nodes
+
+
     def begin_edge(self, motion_idx):
         return (self._nodes[motion_idx].out[0], glm.mat4())
 
     def next_edge(self, edge, children_idx, current_transform):
         dst = edge.dst
-        in_edge_idx = dst.iin.index(edge)
-        # for ii, out_edge in enumerate(dst.out):
-        #     if out_edge.is_transition():
-        #         return (out_edge, dst.out_transforms[in_edge_idx, ii])
+
+        # Can't go anywhere, restarting current motion
+        if children_idx >= len(dst.out):
+            return self.begin_edge(self._motions.index(dst.motion))
+
+        in_edge_idx = dst.iin.index(edge)        
         return (dst.out[children_idx], current_transform * dst.out_transforms[in_edge_idx, children_idx])
 
     def _difference_between_frames(self, i, j):
@@ -346,13 +325,15 @@ class MotionGraph:
         window_j = self._motion_window(j - (self._window_length - 1), j)
 
         if window_i is None or window_j is None:
-            return MotionGraph.INVALID_DISTANCE
+            return INVALID_DISTANCE
 
         if len(window_i) != len(window_j):
             raise RuntimeError("Distance metric can only be computed for motion windows " +
                                "with the same length.")
 
         # Computes the distance between the two windows
+        window_i = window_i.ravel()
+        window_j = window_j.ravel()
         diff_vec = window_i - window_j
         return np.linalg.norm(diff_vec)
 
@@ -361,13 +342,12 @@ class MotionGraph:
         It basically computes an rotation around the y-axis and a translation on the x-z plane that
         aligns the pose j in respect to pose i so that the squared distance between the corresponding
         positions is minimum.
-
         Returns
            (theta, tx, ty)
         """
 
-        num_parts = frame_i_positions.shape[0]
-        if frame_j_positions.shape[0] != num_parts:
+        num_parts = len(frame_i_positions)
+        if len(frame_j_positions) != num_parts:
             raise RuntimeError("The alignment between two frames can only be computed when both poses "\
                                "have the same dimensions.")
 
@@ -385,6 +365,7 @@ class MotionGraph:
         # Denominator left term: SUM(w_i * (x_i * x'_i + z_i  * z'_i))
         num_left = 0.0
         den_left = 0.0
+
         for w, body_pos_i, body_pos_j in zip(weights, frame_i_positions, frame_j_positions):
             num_left += w * (body_pos_i[0] * body_pos_j[2]) - (body_pos_j[0] * body_pos_i[2])
             den_left += w * (body_pos_i[0] * body_pos_j[0]) + (body_pos_i[2] * body_pos_j[2])
@@ -432,8 +413,8 @@ class MotionGraph:
         motion_j = self._motion_data_containing_frame(window_j[0])
         motion_frame_i = self._motion_frame_number(motion_i, window_i[0])
         motion_frame_j = self._motion_frame_number(motion_j, window_j[0])
-        frame_i_positions = motion_i.get_all_positions(motion_frame_i)[0]
-        frame_j_positions = motion_j.get_all_positions(motion_frame_j)[0]
+        frame_i_positions = motion_i.get_frames_positions(motion_frame_i)
+        frame_j_positions = motion_j.get_frames_positions(motion_frame_j)
 
         angle, tx, tz = self._compute_alignment_between_frames(frame_i_positions, frame_j_positions)
         _, tx, tz = 0.0, 0.0, 0.0
@@ -525,7 +506,11 @@ class MotionGraph:
         if motion is None:
             raise RuntimeError("Invalid motion returned for the given frame index.")
 
-        return self._frames_pose_angles[begin_frame: end_frame + 1, ]
+        # Transform interval indices to motion local index
+        frame_interval = (self._to_motion_local_index(motion, begin_frame),
+                          self._to_motion_local_index(motion, end_frame))
+
+        return motion.get_frames_joint_angles(*frame_interval)
 
     def _get_motion_window_as_hierarchical_poses(self, begin_frame, end_frame):
         # Check if the provided indices are valid
@@ -563,21 +548,13 @@ class MotionGraph:
         pillow_compatible = (self._similarity_mat * 255).astype('uint8')
         return Image.fromarray(pillow_compatible, "L")
 
-    def _build_list_of_poses(self):
-        first_motion = self._motion_data_containing_frame(0)
-        pose_angles_dim    = len(first_motion.get_all_rotations(0)[0])
-        pose_positions_dim = first_motion.get_all_positions(0)[0].shape
+    def _to_motion_local_index(self, motion, frame_gid):
+        for curr in self._motions:
+            if curr is motion:
+                return frame_gid
+            frame_gid -= curr.frame_count
 
-        self._frames_pose_angles    = np.empty((self.num_frames, pose_angles_dim), dtype=np.float32)
-        self._frames_pose_positions = np.empty((self.num_frames, *pose_positions_dim), dtype=np.float32)
-
-        offset = 0
-        for motion in self._motions:
-            for i in range(len(motion)):
-                self._frames_pose_angles   [offset + i:] = motion.get_all_rotations(i)[0]
-                self._frames_pose_positions[offset + i:] = motion.get_all_positions(i)[0]
-
-            offset += len(motion)
+        raise RuntimeError("Could not found the local frame index.")
 
     def _motion_frame_number(self, motion, gframe):
         for cur in self._motions:
@@ -675,7 +652,7 @@ class MotionGraph:
         # self._graph_export_graphviz('pruned.gv')
 
         # Pruning graph finding strongest connected component for each motion
-        # kosaraujo
+        # kosaraujo 
         assert(len(self._motions) == len(self._nodes))
         all_comp_nodes = []
 
@@ -696,9 +673,12 @@ class MotionGraph:
             rec_add(self._nodes[ii])
             all_comp_nodes.append(comp_nodes)
 
+        # Tagging nodes and counting connected components
+        all_tags = []
         for ii, motion in enumerate(self._motions):
             comp_nodes = all_comp_nodes[ii]
             tags = { }
+            tagged_nodes = []
             cur_tag = 0
             # dbg.trace()
             for jj, comp_node in enumerate(reversed(comp_nodes)):
@@ -708,11 +688,47 @@ class MotionGraph:
                     if node in tags:
                         continue
                     tags[node] = cur_tag
-                    node.label += f'{cur_tag}'
+                    node.label += str(cur_tag)
+                    tagged_nodes.append(node)
                     for in_edge in node.iin:
                         if (in_edge.motion == motion or in_edge.src.motion == motion) and in_edge.src not in tags:
                             traverse_stack.insert(0, in_edge.src)    
                 cur_tag += 1
+            all_tags.append((tags, tagged_nodes))
+
+        self._graph_export_graphviz('components.gv')
+
+
+        # Finding biggest connected component
+        for ii, motion in enumerate(self._motions):
+            tags = all_tags[ii]
+
+            # Counting components
+            import ipdb; ipdb.set_trace()
+            component_nodes = {}
+            for node, component in tags[0].items():
+                if component not in component_nodes:
+                    component_nodes[component] = []
+                component_nodes[component].append(node)
+
+            max_comp = max(component_nodes.items(), key=lambda t: len(t[1]))
+            tagged_nodes = max_comp[1]
+
+            def remove_rec(node):
+                if node not in tagged_nodes:
+                    for ie in node.iin:
+                        ie.src.out.remove(ie)
+                    for oe in node.out:
+                        oe.dst.iin.remove(oe)
+
+                for oe in node.out:
+                    if oe.motion == node.motion:
+                        remove_rec(oe.dst)
+
+
+            remove_rec(self._nodes[ii])
+
+            self._nodes[ii] = tagged_nodes[0]
 
         print('Pruned motion graph')
 
@@ -730,9 +746,15 @@ class MotionGraph:
 
         print('Finished generating motion graph')
 
+    def _set_progress_cb(self, cb):
+        self._progress_cb = cb
+
+    def _notify_progress(self, factor):
+        if self._progress_cb is not None:
+            self._progress_cb(factor)
+
 if __name__ == "__main__":
     from skeleton import *
-    logging.basicConfig(level=logging.DEBUG)
     motion0 = AnimatedSkeleton()
     motion0.load_from_file("data\\02\\02_02.bvh")
     motion1 = AnimatedSkeleton()

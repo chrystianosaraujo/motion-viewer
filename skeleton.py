@@ -80,6 +80,10 @@ class AnimatedSkeleton:
         self._reference_up = up # Reference up vector
 
         self._identity = glm.mat4()
+        self._all_joint_angles =  None # Cached Joints Angles
+        self._all_positions =  None # Cached body's parts position
+        self._pose_joints_dims = None
+        self._pose_positions_dims = None
 
     def __len__(self):
         return len(self._frames)
@@ -132,6 +136,7 @@ class AnimatedSkeleton:
                     self._frames.append(process_bvh_rec(frame, bvh_root[0]))
 
                 self._frame_time = bvh_frame_time
+                self._populate_caches()
 
                 print(f'Finished: {path}')
 
@@ -146,14 +151,13 @@ class AnimatedSkeleton:
             computes transform and rest rotation.
         """
         if not frames:
-            # error() 
+            # error()
             return
-        
+
         print(f'Processing {len(frames)} frame')
 
         # Same as internal format
         self._frames = frames
-
 
         def _process_data_rec(node):
             node._transform = self._compute_transform(node.offset, node.angles, node.position, node.rotation_order)
@@ -170,12 +174,15 @@ class AnimatedSkeleton:
         for frame in self._frames:
             _process_data_rec(frame)
 
+        self._populate_caches()
+
     def traverse(self, frame, callback, root_transform=glm.mat4(1.0)):
         """
             DFS Skeleton traversal which calls callback() on all renderable nodes.
             callback(type, name, transform, length, rest_rotation)
             TODO: This should probably be called traverse_visible() or traverse_renderable()
         """
+
         if frame not in range(0, self.frame_count):
             # error()
             return
@@ -186,55 +193,45 @@ class AnimatedSkeleton:
 
         self._traverse(self._frames[frame], root_transform, callback)
 
-    def get_all_positions(self, frame):
-        """ Retrieves a list of all global joint positions (not relative to parent) after transformation
-            for the specified frame.
-            -> (positions, types)
-            len(positions) == len(types)
-        """
-        positions = []
-        types = []
+    def get_frames_positions(self, first_frame, last_frame=None):
+        """ Retrieves the list of global positions (not relative to parent) after transformation
+            for the specified frame interval.
 
-        def gather_positions_rec(node, parent_transform):
-            transform = parent_transform * node._transform
-            trans = transform[3, :3]
-            positions.append(np.asarray(trans).ravel())
-            types.append(node.ntype)
-
-            for child in node.children:
-                gather_positions_rec(child, copy.copy(transform))
-
-
-        gather_positions_rec(self._frames[frame], glm.mat4(1.0))
-        return (np.array(positions), types)
-
-
-    def get_all_rotations(self, frame):
-        """ Retrieves the list of relative joint rotations for the specified frame flattened 
-            in a single array.
-            -> (rotations, types)
-            len(rotations) == len(types)
+        Args:
+          first_frame: first frame of the interval
+          last_frame : last frame (included) of the interval. In case it is None, the first
+                       frame will be considered.
         """
 
-        rotations = []
-        types = []
+        last_frame = last_frame if last_frame is not None else first_frame
 
-        def gather_rotations_rec(node):
-            rotations.append(node.angles[0])
-            types.append(node.ntype)
-            rotations.append(node.angles[1])
-            types.append(node.ntype)
-            rotations.append(node.angles[2])
-            types.append(node.ntype)
 
-            for child in node.children:
-                gather_rotations_rec(child)
+        num_frames = last_frame - first_frame + 1
+        interval = (first_frame * self._pose_positions_dims,
+                    first_frame * self._pose_positions_dims + (num_frames * self._pose_positions_dims))
 
-        gather_rotations_rec(self._frames[frame])
-        return (np.array(rotations), types)
+        all_positions = self._all_positions[interval[0] : interval[1]]
+        return np.array(all_positions)
+
+    def get_frames_joint_angles(self, first_frame, last_frame=None):
+        """ Retrieves the list of relative joint rotations for the specified frame interval.
+
+        Args:
+          first_frame: first frame of the interval
+          last_frame : last frame (included) of the interval. In case it is None, the first
+                       frame will be considered.
+        """
+
+        last_frame = last_frame if last_frame is not None else first_frame
+
+        num_frames = last_frame - first_frame + 1
+        interval = (first_frame * self._pose_joints_dims,
+                    first_frame * self._pose_joints_dims + (num_frames * self._pose_joints_dims))
+
+        all_angles = self._all_joint_angles[interval[0] : interval[1]]
+        return np.array(all_angles)
 
     def get_frame_root(self, frame):
-        # print(f'{frame} : {self.frame_count}')
         return self._frames[frame]
 
     @property
@@ -245,7 +242,6 @@ class AnimatedSkeleton:
     @property
     def frame_time(self):
         return self._frame_time
-
 
     def _traverse(self, root, root_transform, callback):
         traverse_stack = [root]
@@ -350,3 +346,45 @@ class AnimatedSkeleton:
         if math.isnan(angle):
             return glm.mat4(1.0)
         return compute_rotation(angle, ortho) #glm.rotate(glm.mat4(), angle, ortho)
+
+    def _populate_caches(self):
+        self._populate_joint_angles_cache()
+        self._populate_positions_cache()
+
+    def _populate_joint_angles_cache(self):
+        self._all_joint_angles = []
+
+        def gather_rotations_rec(node):
+            angles = node.angles if node.angles is not None \
+                                 else np.zeros(3)
+
+            self._all_joint_angles.append(angles)
+
+            for child in node.children:
+                gather_rotations_rec(child)
+
+        for frame in self._frames:
+            gather_rotations_rec(frame)
+
+        # Initializes pose angles dimension
+        self._pose_joints_dims = len(self._all_joint_angles) // \
+                                 len(self._frames)
+
+    def _populate_positions_cache(self):
+        self._all_positions = []
+
+        def gather_positions_rec(node, parent_transform):
+            transform = parent_transform * node._transform
+            trans = transform[3, :3]
+            self._all_positions.append(np.asarray(trans).ravel())
+
+            for child in node.children:
+                # TODO(edoardo): Is this copy really needed?
+                gather_positions_rec(child, copy.copy(transform))
+
+        for frame in self._frames:
+            gather_positions_rec(frame, glm.mat4(1.0))
+
+        # Initializes pose angles dimension
+        self._pose_positions_dims = len(self._all_positions) // \
+                                    len(self._frames)

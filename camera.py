@@ -1,18 +1,22 @@
 import glm
 import math
 from PyQt5.QtCore import Qt
+from PyQt5 import QtGui
 
 class FirstPersonCamera:
     def __init__(self, aspect_ratio):
         self._position = glm.vec3(80, 60, 0.0)
         self._direction = glm.vec3(-1.0, -1.0, -1.0)
         self._velocity = glm.vec3(0.0, 0.0, 0.0)
-        self._projection = glm.perspective(45.0, aspect_ratio, 0.01, 1000.0)
+        self.on_resize(aspect_ratio)
 
         self._speed = 5  # units per second
         self._mouse_sensibility = 0.1
 
-    def on_key_down(self, key):
+    def controls(self):
+        return (Qt.Key_A, Qt.Key_S, Qt.Key_D, Qt.Key_W, Qt.Key_Space)
+
+    def on_key_down(self, key, modifiers, last_modifiers):
         if key == Qt.Key_W:
             self._velocity.x += 1
         if key == Qt.Key_S:
@@ -23,10 +27,10 @@ class FirstPersonCamera:
             self._velocity.y += 1
         if key == Qt.Key_Space:
             self._velocity.z += 1
-        # if key == Qt.Key_LSHIFT:
-        #     self._velocity.z -= 1
+        if modifiers & Qt.ShiftModifier:
+            self._velocity.z -= 1
 
-    def on_key_up(self, key):
+    def on_key_up(self, key, modifiers, last_modifiers):
         if key == Qt.Key_W:
             self._velocity.x -= 1
         if key == Qt.Key_S:
@@ -37,8 +41,8 @@ class FirstPersonCamera:
             self._velocity.y -= 1
         if key == Qt.Key_Space:
             self._velocity.z -= 1
-        # if key == Qt.Key_LSHIFT:
-        #     self._velocity.z += 1
+        if not (modifiers & Qt.ShiftModifier) and (last_modifiers & Qt.ShiftModifier):
+            self._velocity.z += 1
 
     def on_mouse_move(self, dx, dy):
         yaw_axis = glm.vec3(0.0, 1.0, 0.0)
@@ -52,7 +56,7 @@ class FirstPersonCamera:
         self._direction = (glm.rotate(glm.mat4(1.0), pitch_angle, pitch_axis) * glm.vec4(self._direction, 1.0)).xyz
 
     def on_resize(self, aspect_ratio):
-        self._projection = glm.perspective(45.0, aspect_ratio, 0.00001, 5000.0)
+        self._projection = glm.perspective(45.0, aspect_ratio, 0.001, 1000.0)
 
     def update(self, ms):  # Add
         up = glm.vec3(0.0, 1.0, 0.0)
