@@ -19,18 +19,17 @@ class NodeType(enum.Enum):
     EYE = 1
     NECK = 2
     TORSO = 3
-    UPPER_LEG = 4
-    LOWER_LEG = 5
-    FOOT = 6
-    UPPER_ARM = 7
-    LOWER_ARM = 8
-    FINGER = 9
-    HAND = 10
-
+    SPINE = 4
+    UPPER_LEG = 5
+    LOWER_LEG = 6
+    FOOT = 7
+    UPPER_ARM = 8
+    LOWER_ARM = 9
+    FINGER = 10
+    HAND = 11
 
 class UnsupportedError(Exception):
     pass
-
 
 class FormatError(Exception):
     pass
@@ -64,13 +63,14 @@ class AnimatedSkeleton:
         NodeType.HEAD: ['head'],
         NodeType.NECK: ['neck'],
         NodeType.EYE: ['eye'],
-        NodeType.TORSO: ['hip', 'chest', 'abdomen', 'spine', 'back', 'collar', 'buttock'],
+        NodeType.SPINE: ['chest', 'abdomen', 'spine', 'back', 'collar', 'buttock'],
+        NodeType.TORSO: ['hip'],
         NodeType.UPPER_LEG: ['upleg', 'thigh'],
         NodeType.LOWER_LEG: ['leg', 'shin'],
         NodeType.FOOT: ['foot', 'toe'],
         NodeType.UPPER_ARM: ['shoulder', 'shldr'],
         NodeType.LOWER_ARM: ['arm'],
-        NodeType.FINGER: ['finger', 'thumb', 'index', 'mid', 'ring', 'pinky'],
+        NodeType.FINGER: ['finger', 'thumb', 'mid', 'ring', 'pinky'],
         NodeType.HAND: ['hand']
     }
 
@@ -98,7 +98,7 @@ class AnimatedSkeleton:
             try:
                 print(f'Loading BVH from: {path}')
                 bvh_root, bvh_frame_time, bvh_frames = bvh.import_bvh(path)
-                
+
                 def process_bvh_rec(frame, node):
                     rotx = bvh_frames[frame][node.rotx_idx] if node.rotx_idx is not None else None
                     roty = bvh_frames[frame][node.roty_idx] if node.roty_idx is not None else None
@@ -268,7 +268,7 @@ class AnimatedSkeleton:
         for t, names in AnimatedSkeleton.BVH_JOINT_NAMES.items():
             for cname in names:
                 if cname in name.lower():
-                    return t                    
+                    return t
         print(f'Failed to find type for {name}')
         return None
 

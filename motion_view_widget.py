@@ -45,7 +45,9 @@ class MotionViewWidget(QtOpenGL.QGLWidget):
         self._motion_render.set_render_matrices(self._camera.view, self._camera.projection)
         self._environment_render.set_render_matrices(self._camera.view, self._camera.projection)
 
+        GL.glEnable(GL.GL_DEPTH_TEST)
         GL.glClear(GL.GL_COLOR_BUFFER_BIT | GL.GL_DEPTH_BUFFER_BIT)
+
         self._environment_render.draw()
         self._motion_render.draw(self._frame)
 

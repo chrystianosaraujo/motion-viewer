@@ -21,7 +21,6 @@ class MotionViewerApp:
 
         self._update_timer = QtCore.QTimer()
         self._update_timer.timeout.connect(self.on_next_frame)
-        self._update_timer.start(1.0 / 120.0)
         self._current_edge = None
         self._current_edge_trans = None
         self._current_frame = 0
@@ -34,8 +33,14 @@ class MotionViewerApp:
 
         #self.load_bvh('data/02/02_01.bvh')
         self.create_motion_graph(['data/02/02_02.bvh', 'data/02/02_03.bvh'])
-        sys.exit(self._app.exec_())
+        self._update_timer.start(1.0 / 120.0)
 
+        try:
+            self._app.exec_()
+        except Exception as e:
+            print(str(e))
+        finally:
+            sys.exit()
 
     def load_bvh(self, fn):
         skeleton = AnimatedSkeleton()
@@ -87,14 +92,14 @@ class MotionViewerApp:
 
         path = [0, 0, 0, 0, 1, 0, 0, 0]#, 0, 0, 0, 0]
 
-        self._ui.scene_widget._motion_render.set_color(color[self._edge_counter % len(color)])
+        #self._ui.scene_widget._motion_render.set_color(color[1])
 
         self._ui.scene_widget.add_motion(self._current_edge.motion, self._current_edge_trans)
         self._ui.scene_widget.set_current_frame(self._current_edge.frames[self._current_frame])
         self._ui.scene_widget.updateGL()
 
         print("Frame", self._current_frame, "CurrentEdge", self._edge_counter)
-        self._current_frame += 1        
+        self._current_frame += 1
 
         if not self._current_edge.is_valid_frame(self._current_frame):
             if self._edge_counter >= len(path) - 1:
@@ -110,7 +115,7 @@ class MotionViewerApp:
                 self._current_frame = 0
                 self._edge_counter += 1
                 print(f'{self._edge_counter} : {self._current_edge.frames}')
-                
+
 if __name__ == "__main__":
     app = MotionViewerApp()
     app.run()

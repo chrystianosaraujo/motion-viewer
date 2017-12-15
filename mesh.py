@@ -1,3 +1,12 @@
+import numpy as np
+import math
+import collections
+
+Mesh = collections.namedtuple("Mesh", "vertices normals")
+
+def normalize_vector(vec):
+    return vec / np.linalg.norm(vec)
+
 def create_cube_mesh():
     """ This function creates a triangle mesh for a cube.
     The created mesh is suited for being used with glDrawArrays.
@@ -6,6 +15,7 @@ def create_cube_mesh():
         Array of vertices
         Array of normals
     """
+
     vertices = [[-0.5, 0.0, -0.5],
                 [0.5, 0.0, -0.5],
                 [0.5, 0.0, 0.5],
@@ -48,4 +58,204 @@ def create_cube_mesh():
         all_faces_vertices.extend(v0 + v1 + v2)
         all_vertices_normal.extend(normal * 3)
 
-    return all_faces_vertices, all_vertices_normal
+    return Mesh(vertices = np.asarray(all_faces_vertices , dtype=np.float32),
+                normals  = np.asarray(all_vertices_normal, dtype=np.float32))
+
+def create_cylinder_mesh(num_steps):
+    """ This function creates a triangle mesh for a cylinder with caps.
+    The created mesh is suited for being used with glDrawArrays.
+
+    Return:
+        Array of vertices
+        Array of normals
+    """
+
+    bottom_cap_vertices = []
+    top_cap_vertices    = []
+
+    # Generating caps vertices
+    half_length = 0.5
+
+    curr_angle = 0.0
+    step = math.pi * 2.0 / (num_steps - 1)
+    for i in range(num_steps):
+        print(i, curr_angle)
+        x = math.cos(curr_angle)
+        z = math.sin(curr_angle)
+
+        top_cap_vertices.append(np.array([x, half_length * 2.0, z]))
+        bottom_cap_vertices.append(np.array([x, 0.0, z]))
+
+        curr_angle += step
+
+    all_vertices = []
+    all_normals  = []
+
+    # Generating side faces
+    for i in range(num_steps):
+        indices = (i, (i + 1) % num_steps)
+
+        bottom_verts = (bottom_cap_vertices[indices[0]],
+                        bottom_cap_vertices[indices[1]])
+
+        top_verts = (top_cap_vertices[indices[0]],
+                     top_cap_vertices[indices[1]])
+
+        all_vertices.extend(bottom_verts[0])
+        all_vertices.extend(bottom_verts[1])
+        all_vertices.extend(top_verts[0])
+
+        all_vertices.extend(bottom_verts[1])
+        all_vertices.extend(top_verts[1])
+        all_vertices.extend(top_verts[0])
+
+        all_normals.extend(normalize_vector(bottom_verts[0]))
+        all_normals.extend(normalize_vector(bottom_verts[1]))
+        all_normals.extend(normalize_vector(top_verts[0]))
+
+        all_normals.extend(normalize_vector(bottom_verts[1]))
+        all_normals.extend(normalize_vector(top_verts[1]))
+        all_normals.extend(normalize_vector(top_verts[0]))
+
+    # Generating caps vertices
+    caps_center = [np.array([0.0, 0.0, 1.0]), np.array([0.0, 0.0, 0.0])]
+    caps_vertices = [top_cap_vertices, bottom_cap_vertices]
+    for center, vertices in zip(caps_center, caps_vertices):
+        normal = normalize_vector(center)
+
+        for i in range(num_steps):
+            indices = (i, (i + 1) % num_steps)
+
+            curr_verts = (vertices[indices[0]],
+                          vertices[indices[1]])
+
+            all_vertices.extend(center)
+            all_vertices.extend(curr_verts[0])
+            all_vertices.extend(curr_verts[1])
+
+            all_normals.extend(normal)
+            all_normals.extend(normal)
+            all_normals.extend(normal)
+
+    return Mesh(vertices = np.asarray(all_vertices, dtype=np.float32),
+                normals  = np.asarray(all_normals , dtype=np.float32))
+
+def create_sphere_mesh(num_steps = 50):
+    """ This function creates a triangle mesh for a sphere.
+    The created mesh is suited for being used with glDrawArrays.
+
+    Return:
+        Array of vertices
+        Array of normals
+    """
+
+    all_vertices = []
+    all_normals  = []
+
+    d_theta = math.pi / (num_steps + 1)
+    d_phi = 2.0 * math.pi / num_steps
+
+    for i in range(1, num_steps + 1):
+        for j in range(num_steps):
+            curr_theta = i * d_theta
+            curr_phi   = j * d_phi
+
+            next_theta = (i + 1) * d_theta
+            next_phi   = (j + 1) * d_phi
+
+            # Triangle 1
+            all_vertices.extend((math.sin(curr_theta) * math.cos(curr_phi),
+                                 math.sin(curr_theta) * math.sin(curr_phi),
+                                 math.cos(curr_theta)))
+
+            all_vertices.extend((math.sin(next_theta) * math.cos(curr_phi),
+                                 math.sin(next_theta) * math.sin(curr_phi),
+                                 math.cos(next_theta)))
+
+            all_vertices.extend((math.sin(next_theta) * math.cos(next_phi),
+                                 math.sin(next_theta) * math.sin(next_phi),
+                                 math.cos(next_theta)))
+
+            # Triangle 2
+            all_vertices.extend((math.sin(curr_theta) * math.cos(curr_phi),
+                                 math.sin(curr_theta) * math.sin(curr_phi),
+                                 math.cos(curr_theta)))
+
+            all_vertices.extend((math.sin(next_theta) * math.cos(next_phi),
+                                 math.sin(next_theta) * math.sin(next_phi),
+                                 math.cos(next_theta)))
+
+            all_vertices.extend((math.sin(curr_theta) * math.cos(next_phi),
+                                 math.sin(curr_theta) * math.sin(next_phi),
+                                 math.cos(curr_theta)))
+
+            # Triangle 1
+            all_normals.extend((math.sin(curr_theta) * math.cos(curr_phi),
+                                math.sin(curr_theta) * math.sin(curr_phi),
+                                math.cos(curr_theta)))
+
+            all_normals.extend((math.sin(next_theta) * math.cos(curr_phi),
+                                math.sin(next_theta) * math.sin(curr_phi),
+                                math.cos(next_theta)))
+
+            all_normals.extend((math.sin(next_theta) * math.cos(next_phi),
+                                math.sin(next_theta) * math.sin(next_phi),
+                                math.cos(next_theta)))
+
+            # Triangle 2
+            all_normals.extend((math.sin(curr_theta) * math.cos(curr_phi),
+                                math.sin(curr_theta) * math.sin(curr_phi),
+                                math.cos(curr_theta)))
+
+            all_normals.extend((math.sin(next_theta) * math.cos(next_phi),
+                                math.sin(next_theta) * math.sin(next_phi),
+                                math.cos(next_theta)))
+
+            all_normals.extend((math.sin(curr_theta) * math.cos(next_phi),
+                                math.sin(curr_theta) * math.sin(next_phi),
+                                math.cos(curr_theta)))
+
+    for j in range(num_steps):
+        all_vertices.extend((0.0, 0.0, 1.0))
+
+        all_vertices.extend((math.sin(d_theta) * math.cos(j * d_phi),
+                             math.sin(d_theta) * math.sin(j * d_phi),
+                             math.cos(d_theta)))
+
+        all_vertices.extend((math.sin(d_theta) * math.cos((j + 1) * d_phi),
+                             math.sin(d_theta) * math.sin((j + 1) * d_phi),
+                             math.cos(d_theta)))
+
+        all_normals.extend((0.0, 0.0, 1.0))
+
+        all_normals.extend((math.sin(d_theta) * math.cos(j * d_phi),
+                            math.sin(d_theta) * math.sin(j * d_phi),
+                            math.cos(d_theta)))
+
+        all_normals.extend((math.sin(d_theta) * math.cos((j + 1) * d_phi),
+                            math.sin(d_theta) * math.sin((j + 1) * d_phi),
+                            math.cos(d_theta)))
+
+    for j in range(num_steps):
+        all_vertices.extend((0.0, 0.0, -1.0))
+
+        all_vertices.extend((math.sin(math.pi - d_theta) * math.cos(j * d_phi),
+                             math.sin(math.pi - d_theta) * math.sin(j * d_phi),
+                             math.cos(math.pi - d_theta)))
+
+        all_vertices.extend((math.sin(math.pi - d_theta) * math.cos((j + 1) * d_phi),
+                             math.sin(math.pi - d_theta) * math.sin((j + 1) * d_phi),
+                             math.cos(math.pi - d_theta)))
+
+        all_normals.extend((0.0, 0.0, -1.0))
+
+        all_normals.extend((math.sin(math.pi - d_theta) * math.cos(j * d_phi),
+                            math.sin(math.pi - d_theta) * math.sin(j * d_phi),
+                            math.cos(math.pi - d_theta)))
+
+        all_normals.extend((math.sin(math.pi - d_theta) * math.cos((j + 1) * d_phi),
+                            math.sin(math.pi - d_theta) * math.sin((j + 1) * d_phi),
+                            math.cos(math.pi - d_theta)))
+
+    return Mesh(vertices = np.asarray(all_vertices, dtype=np.float32),
+                normals  = np.asarray(all_normals , dtype=np.float32))
