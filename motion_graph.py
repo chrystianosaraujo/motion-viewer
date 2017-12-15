@@ -58,10 +58,10 @@ class MotionGraph:
 
                     #theta, tx, tz = compute_alignment(last_in_positions, first_out_positions)
                     diff = last_in_positions[0] - first_out_positions[0]
-                    tx, _, tz = diff
+                    tx, ty, tz = diff
                     theta = 0.0 
 
-                    transform = glm.translate(glm.mat4(), glm.vec3(tx, 0.0, tz))
+                    transform = glm.translate(glm.mat4(), glm.vec3(tx, ty, tz))
                     transform = glm.rotate(transform, theta, glm.vec3(0.0, 1.0, 0.0))
                     self.out_transforms[iini, outi] = transform
 
@@ -452,7 +452,7 @@ class MotionGraph:
             # Linear interpolates the root position
             pose_b.position = np.add(a_p * pose_i.position, (1 - a_p) * pose_j.position)
 
-            # Spherical interpolates all joints angles
+            # (Spherical) interpolates all joints angles
             stack_nodes = [(pose_i, pose_j, pose_b)]
             while stack_nodes:
                 poses = stack_nodes.pop()
