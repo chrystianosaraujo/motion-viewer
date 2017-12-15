@@ -40,7 +40,7 @@ class MotionViewerApp:
 
     def run(self):
         self._main_window.show()
-        self.create_motion_graph(['data/02/02_02.bvh', 'data/02/02_03.bvh'])
+        self.create_motion_graph(['data/02/02_02.bvh', 'data/02/02_04.bvh'])
         sys.exit(self._app.exec_())
 
     def load_bvh(self, fn):
