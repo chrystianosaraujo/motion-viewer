@@ -15,12 +15,20 @@ class BVHNode:
         self.rotx_idx = None
         self.roty_idx = None
         self.rotz_idx = None
+        self.rot_order = None
 
         self.is_ee = False
         self.ee_offset = [None, None, None]
 
         self.parent = None
         self.children = []
+
+    @property
+    def rotation_order(self):
+        if self.rot_order is None:
+            rot_idxs = [self.rotx_idx, self.roty_idx, self.rotz_idx]
+            self.rot_order = sorted(range(len(rot_idxs)), key=lambda i: rot_idxs[i])
+        return self.rot_order
 
 
 class BVHFormatError(Exception):
@@ -156,11 +164,13 @@ def import_bvh(path):
             dz = a[2] - b[2]
             return math.sqrt(dx * dx + dy * dy + dz * dz)
 
-        for child in node.children:
-            child.estimated_length = (-child.offset[0], -child.offset[1], -child.offset[2])
-            print(f"{node.name} -> {child.name}")
-            print(f"{node.offset} -> {child.offset}")
-            print(f"{child.estimated_length}")
+        if len(node.children) > 1:
+            node.estimated_length = (0.0, 0.0, 0.0)
+        elif len(node.children) == 1:
+            node.estimated_length = node.children[0].offset
+        elif node.is_ee:
+            node.estimated_length = node.ee_offset
+
         # if node.is_ee:
             #node.estimated_length = delta(node.offset, node.ee_offset)
 
@@ -169,7 +179,6 @@ def import_bvh(path):
 
     # Computing bone lengths and initial rotations
     for root in roots:
-        root.estimated_length = [1.0, 1.0, 1.0]
         compute_lengths_rec(root)
 
         # Moving to origin by looking up first frames
