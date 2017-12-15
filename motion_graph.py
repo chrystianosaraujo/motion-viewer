@@ -9,14 +9,15 @@ import glm
 import math
 import copy
 import pickle
+import random
 import debugger
 
 from functools import reduce
 
 INVALID_DISTANCE = float("nan")
-LOCAL_MINIMA_TOLERANCE = 1E-2
-SAME_MOTION_SIMILARITY_TOL = (0.1, 0.3)
-DIFF_MOTION_SIMILARITY_TOL = (0.0, 0.3)
+LOCAL_MINIMA_TOLERANCE = 1E-3
+SAME_MOTION_SIMILARITY_TOL = (0.05, 0.3)
+DIFF_MOTION_SIMILARITY_TOL = (0.0, 0.1)
 
 def normalize_np_matrix(mat):
     min_value = np.nanmin(mat)
@@ -139,7 +140,7 @@ class MotionGraph:
 
         self._motions.append(motion)
 
-    def build(self, progress_cb):
+    def build(self, progress_cb=None):
         """ This function creates the motion graph using all motion data
         previously added by calling the function add_motion.
         """
@@ -152,7 +153,6 @@ class MotionGraph:
         self._generate_graph()
 
         # debugger.finish_profiler(pr)
-
         self._set_progress_cb(None)
 
     def serialize(self):
@@ -169,20 +169,21 @@ class MotionGraph:
             for j in range(num_frames):
                 self._similarity_mat[i, j] = self._difference_between_frames(i, j)
 
+        # Normalize each matrix quadrant individually
+        curr_i = 0
+        for i, motion_i in enumerate(self._motions):
+            curr_j = 0
+            for j, motion_j in enumerate(self._motions):
+                print(j, len(motion_j))
+                slice_i = slice(curr_i, curr_i + len(motion_i))
+                slice_j = slice(curr_j, curr_j + len(motion_j))
 
-        shape = (0, len(self._motions[0]), 0, len(self._motions[0]))
-        self._similarity_mat[shape[0]:shape[1], shape[2]:shape[3]] = normalize_np_matrix(self._similarity_mat[shape[0]:shape[1], shape[2]:shape[3]])
+                print("Normalizing Slice: ", str(slice_i), str(slice_j))
 
-        shape = (len(self._motions[0]), self._similarity_mat.shape[0], 0, len(self._motions[0]))
-        self._similarity_mat[shape[0]:shape[1], shape[2]:shape[3]] = normalize_np_matrix(self._similarity_mat[shape[0]:shape[1], shape[2]:shape[3]])
+                self._similarity_mat[slice_i, slice_j] = normalize_np_matrix(self._similarity_mat[slice_i, slice_j])
 
-        shape = (0, len(self._motions[0]), len(self._motions[0]), self._similarity_mat.shape[1])
-        self._similarity_mat[shape[0]:shape[1], shape[2]:shape[3]] = normalize_np_matrix(self._similarity_mat[shape[0]:shape[1], shape[2]:shape[3]])
-
-        shape = (len(self._motions[0]), self._similarity_mat.shape[0], len(self._motions[0]), self._similarity_mat.shape[1])
-        self._similarity_mat[shape[0]:shape[1], shape[2]:shape[3]] = normalize_np_matrix(self._similarity_mat[shape[0]:shape[1], shape[2]:shape[3]])
-
-        # self._similarity_mat = normalize_np_matrix(self._similarity_mat)
+                curr_j += len(motion_j)
+            curr_i += len(motion_i)
 
     def _find_local_minima(self):
         # Compute the gradient of the similarity matrix
@@ -306,18 +307,20 @@ class MotionGraph:
     def get_root_nodes(self):
         return self._nodes
 
-
     def begin_edge(self, motion_idx):
         return (self._nodes[motion_idx].out[0], glm.mat4())
 
     def next_edge(self, edge, children_idx, current_transform):
         dst = edge.dst
 
+        if children_idx is None:
+            children_idx = random.randrange(0, len(dst.out))
+
         # Can't go anywhere, restarting current motion
         if children_idx >= len(dst.out):
             return self.begin_edge(self._motions.index(dst.motion))
 
-        in_edge_idx = dst.iin.index(edge)        
+        in_edge_idx = dst.iin.index(edge)
         return (dst.out[children_idx], current_transform * dst.out_transforms[in_edge_idx, children_idx])
 
     def _difference_between_frames(self, i, j):
@@ -592,8 +595,9 @@ class MotionGraph:
 
         for node in self._nodes:
             _export_node_rec(node)
-
-        dot.render(filename, view=True)
+        with open(filename, 'w') as ff:
+            ff.write(dot.source)
+        #dot.render(filename, view=True)
 
     def _generate_graph(self):
         self._nodes.clear()
@@ -638,7 +642,10 @@ class MotionGraph:
                 window_j = (glast - (self._window_length - 1), glast)
                 transition_motion = self._generate_transition(window_i, window_j)
 
-                new_node1.add_edge(new_node2, transition_motion)
+                if gsrc > gdst:
+                    new_node2.add_edge(new_node1, transition_motion)
+                else:
+                    new_node1.add_edge(new_node2, transition_motion)
             else:
                 mid_src = src_edge.split(src)
                 mid_dst = dst_edge.split(dst)
@@ -650,7 +657,6 @@ class MotionGraph:
                 mid_src.add_edge(mid_dst, transition_motion)
 
         print(f'Inserted {len(self._selected_local_minima)} local minimas')
-        # self._graph_export_graphviz('pruned.gv')
 
         # Pruning graph finding strongest connected component for each motion
         # kosaraujo 
@@ -727,7 +733,6 @@ class MotionGraph:
 
 
             remove_rec(self._nodes[ii])
-
             self._nodes[ii] = tagged_nodes[0]
 
         print('Pruned motion graph')
@@ -745,6 +750,7 @@ class MotionGraph:
             finalize_rec(node)
 
         print('Finished generating motion graph')
+        self._graph_export_graphviz('pruned.gv')
 
     def _set_progress_cb(self, cb):
         self._progress_cb = cb
@@ -753,19 +759,25 @@ class MotionGraph:
         if self._progress_cb is not None:
             self._progress_cb(factor)
 
+def progress_cb(factor):
+    print("[DEBUG] Building MotionGraph ({:.2f})%".format(factor * 100.0))
+
 if __name__ == "__main__":
     from skeleton import *
     motion0 = AnimatedSkeleton()
     motion0.load_from_file("data\\02\\02_02.bvh")
-    motion1 = AnimatedSkeleton()
-    motion1.load_from_file("data\\02\\02_03.bvh")
+    #motion1 = AnimatedSkeleton()
+    #motion1.load_from_file("data\\02\\02_03.bvh")
+    motion2 = AnimatedSkeleton()
+    motion2.load_from_file("data\\16\\16_57.bvh")
 
     graph = MotionGraph(30)
     graph.add_motion(motion0)
-    graph.add_motion(motion1)
+    #graph.add_motion(motion1)
+    graph.add_motion(motion2)
 
     import time
     start = time.time()
-    graph.build()
+    graph.build(progress_cb)
     print('It took {0:0.1f} seconds'.format(time.time() - start))
     graph.get_similarity_matrix_as_image().show()

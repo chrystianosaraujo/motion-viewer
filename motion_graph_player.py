@@ -32,12 +32,11 @@ class MotionGraphPlayer:
 
 		if not self._current_edge.is_valid_frame(self._current_frame):
 			if not self._path:
-				self._path.append(0)
+				self._path.append(None)
 
 			next_out_edge = self._path.pop(0)
 			self._current_edge, self._transform = self._motion_graph.next_edge(self._current_edge, next_out_edge, self._transform)
 			self._current_frame = 0
-
 
 	def _reset(self):
 		self._motion_graph = None
