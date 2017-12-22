@@ -1,7 +1,0 @@
-In case you want to check the simulation before the face to face grading.
-
-`python a4.py` Single Link
-`python a4.py 1` Four Links + Plane
-`python a4.py 2` Four Links + Plane
-
-Coefficients have to be manually tweaked
