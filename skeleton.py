@@ -376,8 +376,8 @@ class AnimatedSkeleton:
 
         def gather_positions_rec(node, parent_transform):
             transform = parent_transform * node._transform
-            trans = transform[3, :3]
-            self._all_positions.append(np.asarray(trans).ravel())
+            trans = np.asarray(transform)[3, :3]
+            self._all_positions.append(trans.ravel())
 
             for child in node.children:
                 # TODO(edoardo): Is this copy really needed?
