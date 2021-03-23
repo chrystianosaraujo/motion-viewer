@@ -1,4 +1,5 @@
 # Motion Viewer
+This project is co-authored with https://github.com/sparkon
 ## Overview
 Motion Viewer is an open source implementation of the [2002 SIGGRAPH paper "Motion Graphs"](https://dl.acm.org/citation.cfm?id=566605). 
 It features:  
